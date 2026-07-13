@@ -6,11 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from '../../src/renderer/src/App'
+import {
+  CaptureWorkspace,
+  ObsConnectionDialog
+} from '../../src/renderer/src/components/CaptureWorkspace'
 import { NewSessionDialog } from '../../src/renderer/src/components/NewSessionDialog'
 import type { SessionScribeApi } from '../../src/shared/ipc'
 import {
   JOB_ID,
   SUMMARY_PROFILE_ID,
+  captureFixture,
   createMockApi,
   profilesFixture,
   sessionFixture,
@@ -69,6 +74,117 @@ describe('renderer workbench', () => {
         mode: 'lecture'
       })
     })
+  })
+
+  it('cancels a pending OBS connection when the connection dialog closes', async () => {
+    let rejectConnection!: (error: Error) => void
+    let finishCancellation!: () => void
+    const onConnect = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectConnection = reject
+        })
+    )
+    const onCancelConnect = vi.fn(() => {
+      rejectConnection(new Error('The OBS connection attempt was cancelled'))
+      return new Promise<void>((resolve) => {
+        finishCancellation = resolve
+      })
+    })
+    function Harness(): React.JSX.Element {
+      const [open, setOpen] = React.useState(true)
+      const [connected, setConnected] = React.useState(false)
+      return React.createElement(ObsConnectionDialog, {
+        open,
+        connected,
+        obsVersion: null,
+        onOpenChange: setOpen,
+        onConnect: async () => {
+          setConnected(true)
+          await onConnect()
+        },
+        onCancelConnect,
+        onDisconnect: async () => undefined
+      })
+    }
+    const user = userEvent.setup()
+    render(React.createElement(Harness))
+
+    const dialog = await screen.findByRole('dialog', { name: 'OBS connection' })
+    await user.click(within(dialog).getByRole('button', { name: 'Connect' }))
+    expect(within(dialog).getByRole('status').textContent).toContain('Waiting for OBS Studio')
+    expect(within(dialog).queryByRole('button', { name: 'Done' })).toBeNull()
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+
+    await waitFor(() => expect(onCancelConnect).toHaveBeenCalledOnce())
+    expect(
+      within(dialog).getByRole<HTMLButtonElement>('button', { name: 'Connecting...' }).disabled
+    ).toBe(true)
+    finishCancellation()
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'OBS connection' })).toBeNull())
+  })
+
+  it('shows the OBS setup error without Electron IPC transport text', async () => {
+    const onConnect = vi.fn(async () => {
+      throw new Error(
+        "Error invoking remote method 'sessionscribe:invoke': ObsSubsystemError: The OBS WebSocket server is disabled."
+      )
+    })
+    render(
+      React.createElement(ObsConnectionDialog, {
+        open: true,
+        connected: false,
+        obsVersion: null,
+        onOpenChange: vi.fn(),
+        onConnect,
+        onCancelConnect: async () => undefined,
+        onDisconnect: async () => undefined
+      })
+    )
+    const user = userEvent.setup()
+    const dialog = await screen.findByRole('dialog', { name: 'OBS connection' })
+
+    await user.click(within(dialog).getByRole('button', { name: 'Connect' }))
+    const alert = await within(dialog).findByRole('alert')
+    expect(alert.textContent).toBe('The OBS WebSocket server is disabled.')
+  })
+
+  it('waits for OBS provisioning before discovering capture sources', async () => {
+    const onDiscover = vi.fn(async () => ({ targets: [], audioDevices: [] }))
+    const props = {
+      session: sessionFixture,
+      profiles: profilesFixture,
+      onOpenConnection: vi.fn(),
+      onDiscover,
+      onConfigure: vi.fn(async () => undefined),
+      onSelectPortalTarget: vi.fn(async () => undefined),
+      onPreflight: vi.fn(async () => ({
+        ok: true,
+        blockers: [],
+        warnings: [],
+        screenshotDataUrl: null
+      })),
+      onStart: vi.fn(async () => undefined),
+      onStop: vi.fn(async () => undefined)
+    }
+    const view = render(
+      React.createElement(CaptureWorkspace, {
+        ...props,
+        status: { ...captureFixture, connected: true, phase: 'configuring' }
+      })
+    )
+
+    await Promise.resolve()
+    expect(onDiscover).not.toHaveBeenCalled()
+    expect(screen.getByRole('heading', { name: 'Preparing OBS Studio' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Connect OBS' })).toBeNull()
+    view.rerender(
+      React.createElement(CaptureWorkspace, {
+        ...props,
+        status: { ...captureFixture, connected: true, phase: 'ready' }
+      })
+    )
+    await waitFor(() => expect(onDiscover).toHaveBeenCalledOnce())
   })
 
   it('retries a failed persistent pipeline job', async () => {

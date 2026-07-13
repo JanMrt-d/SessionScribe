@@ -52,6 +52,7 @@ export interface SessionScribeApi {
       password: string
       rememberPassword: boolean
     }): Promise<CaptureStatus>
+    cancelConnect(): Promise<void>
     disconnect(): Promise<void>
     discover(): Promise<{ targets: CaptureTarget[]; audioDevices: AudioDevice[] }>
     configure(input: CaptureConfiguration): Promise<CaptureStatus>

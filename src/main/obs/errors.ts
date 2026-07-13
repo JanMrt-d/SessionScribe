@@ -16,6 +16,11 @@ export class ObsTimeoutError extends ObsSubsystemError {
   }
 }
 
+export function isObsConnectionUnavailable(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || !('code' in error)) return false
+  return error.code === -1 || error.code === 'ECONNREFUSED' || error.code === 'OBS_TIMEOUT'
+}
+
 export function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }

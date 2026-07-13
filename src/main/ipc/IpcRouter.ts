@@ -71,6 +71,7 @@ export class IpcRouter {
   private readonly captureStartProviderIds = new Set<string>()
   private readonly ipcOperations = new IpcOperationBarrier()
   private captureStartingSessionId: string | null = null
+  private captureConnectGeneration = 0
 
   constructor(private readonly dependencies: RouterDependencies) {
     for (const profile of dependencies.profiles.list()) {
@@ -208,6 +209,7 @@ export class IpcRouter {
         return undefined
       }
       case 'capture.connect': {
+        const connectGeneration = ++this.captureConnectGeneration
         const parsed = connectSchema.parse(input)
         const url = new URL(parsed.url)
         if (!['ws:', 'wss:'].includes(url.protocol)) {
@@ -218,12 +220,28 @@ export class IpcRouter {
         }
         const remembered =
           parsed.password || (await services.secrets.get('obs/websocket-password')) || ''
+        if (connectGeneration !== this.captureConnectGeneration) {
+          throw new Error('The OBS connection attempt was cancelled')
+        }
         const status = await services.capture.connect({ url: parsed.url, password: remembered })
+        if (connectGeneration !== this.captureConnectGeneration) {
+          await services.capture.cancelConnect()
+          throw new Error('The OBS connection attempt was cancelled')
+        }
         if (parsed.rememberPassword && parsed.password) {
           await services.secrets.put('obs/websocket-password', parsed.password)
         }
+        if (connectGeneration !== this.captureConnectGeneration) {
+          await services.capture.disconnect()
+          throw new Error('The OBS connection attempt was cancelled')
+        }
         return status
       }
+      case 'capture.cancelConnect':
+        noInputSchema.parse(input)
+        this.captureConnectGeneration += 1
+        await services.capture.cancelConnect()
+        return undefined
       case 'capture.disconnect':
         noInputSchema.parse(input)
         await services.capture.disconnect()

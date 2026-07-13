@@ -11,6 +11,7 @@ import type {
 
 export interface CaptureController {
   connect(input: { url: string; password: string }): Promise<CaptureStatus>
+  cancelConnect(): Promise<void>
   disconnect(): Promise<void>
   discover(): Promise<{ targets: CaptureTarget[]; audioDevices: AudioDevice[] }>
   selectPortalTarget(): Promise<void>

@@ -85,7 +85,7 @@ async function startApplication(): Promise<void> {
     controllerOptions: { artifactProbe: new FfprobeArtifactProbe(ffmpeg.ffprobePath) },
     logger: obsLogger
   })
-  const capture = new LaunchableObsCaptureController(obsCapture)
+  const capture = new LaunchableObsCaptureController(obsCapture, { logger: obsLogger })
   captureController = capture
   const processing = new DurableProcessingController(
     database,

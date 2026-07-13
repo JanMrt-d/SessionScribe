@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   CheckCircle2,
@@ -34,6 +34,7 @@ interface ObsConnectionDialogProps {
   obsVersion: string | null
   onOpenChange(open: boolean): void
   onConnect(input: { url: string; password: string; rememberPassword: boolean }): Promise<void>
+  onCancelConnect(): Promise<void>
   onDisconnect(): Promise<void>
 }
 
@@ -43,6 +44,7 @@ export function ObsConnectionDialog({
   obsVersion,
   onOpenChange,
   onConnect,
+  onCancelConnect,
   onDisconnect
 }: ObsConnectionDialogProps): React.JSX.Element {
   const [url, setUrl] = useState('ws://127.0.0.1:4455')
@@ -50,19 +52,48 @@ export function ObsConnectionDialog({
   const [rememberPassword, setRememberPassword] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const attemptRef = useRef(0)
+  const cancellingRef = useRef(false)
 
   async function connect(): Promise<void> {
+    const attempt = ++attemptRef.current
     setBusy(true)
     setError(null)
     try {
       await onConnect({ url, password, rememberPassword })
+      if (attempt !== attemptRef.current) return
       setPassword('')
       onOpenChange(false)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not connect to OBS Studio.')
+      if (attempt !== attemptRef.current) return
+      setError(connectionErrorMessage(cause, 'Could not connect to OBS Studio.'))
     } finally {
-      setBusy(false)
+      if (attempt === attemptRef.current) setBusy(false)
     }
+  }
+
+  async function cancelConnect(): Promise<void> {
+    if (cancellingRef.current) return
+    cancellingRef.current = true
+    attemptRef.current += 1
+    setError(null)
+    try {
+      await onCancelConnect()
+    } catch {
+      // The main process abort is requested before cancellation cleanup, so the dialog can close.
+    } finally {
+      cancellingRef.current = false
+      setBusy(false)
+      onOpenChange(false)
+    }
+  }
+
+  function handleOpenChange(nextOpen: boolean): void {
+    if (!nextOpen && busy) {
+      void cancelConnect()
+      return
+    }
+    onOpenChange(nextOpen)
   }
 
   async function disconnect(): Promise<void> {
@@ -72,7 +103,7 @@ export function ObsConnectionDialog({
       await onDisconnect()
       onOpenChange(false)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not disconnect from OBS Studio.')
+      setError(connectionErrorMessage(cause, 'Could not disconnect from OBS Studio.'))
     } finally {
       setBusy(false)
     }
@@ -81,11 +112,11 @@ export function ObsConnectionDialog({
   return (
     <Modal
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={handleOpenChange}
       title="OBS connection"
       description="SessionScribe connects only to the WebSocket address you provide."
     >
-      {connected ? (
+      {connected && !busy ? (
         <div className="dialog-form">
           <div className="connection-summary">
             <span className="connection-summary__icon">
@@ -123,6 +154,7 @@ export function ObsConnectionDialog({
               placeholder="ws://127.0.0.1:4455"
               inputMode="url"
               required
+              disabled={busy}
             />
             <span className="field__hint">
               Find this in OBS under Tools → WebSocket Server Settings.
@@ -136,6 +168,7 @@ export function ObsConnectionDialog({
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="off"
               placeholder="OBS WebSocket password"
+              disabled={busy}
             />
           </label>
           <label className="check-field">
@@ -143,23 +176,39 @@ export function ObsConnectionDialog({
               type="checkbox"
               checked={rememberPassword}
               onChange={(event) => setRememberPassword(event.target.checked)}
+              disabled={busy}
             />
             <span>Store password in the operating system credential store</span>
           </label>
+          {busy ? (
+            <span className="field__hint" role="status">
+              Waiting for OBS Studio and its WebSocket server...
+            </span>
+          ) : null}
           {error ? <InlineNotice tone="danger">{error}</InlineNotice> : null}
           <div className="dialog-actions dialog-actions--flush">
-            <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            <Button
+              variant="ghost"
+              onClick={() => (busy ? void cancelConnect() : onOpenChange(false))}
+            >
               Cancel
             </Button>
             <Button variant="primary" type="submit" disabled={busy || !url.trim()}>
               {busy ? <LoaderCircle className="spin" size={17} /> : <PlugZap size={17} />}
-              Connect
+              {busy ? 'Connecting...' : 'Connect'}
             </Button>
           </div>
         </form>
       )}
     </Modal>
   )
+}
+
+function connectionErrorMessage(cause: unknown, fallback: string): string {
+  if (!(cause instanceof Error)) return fallback
+  return cause.message
+    .replace(/^Error invoking remote method '[^']+':\s*/, '')
+    .replace(/^ObsSubsystemError:\s*/, '')
 }
 
 interface CaptureWorkspaceProps {
@@ -223,10 +272,12 @@ export function CaptureWorkspace({
   )
   const isActive = status.activeSessionId === session.id && status.phase === 'recording'
   const isFinalizing = status.activeSessionId === session.id && status.phase === 'finalizing'
+  const isReady = status.connected && status.phase === 'ready'
+  const isPreparingConnection = status.phase === 'configuring'
   const selectedTarget = targets.find((target) => target.id === targetId)
 
   useEffect(() => {
-    if (!status.connected || isActive || isFinalizing) return
+    if (!status.connected || status.phase !== 'ready' || isActive || isFinalizing) return
     let cancelled = false
     void onDiscover()
       .then((result) => {
@@ -246,7 +297,7 @@ export function CaptureWorkspace({
     return () => {
       cancelled = true
     }
-  }, [isActive, isFinalizing, onDiscover, status.connected])
+  }, [isActive, isFinalizing, onDiscover, status.connected, status.phase])
 
   useEffect(() => {
     setTranscriptionProfileId((current) =>
@@ -391,25 +442,41 @@ export function CaptureWorkspace({
           <h1 id="capture-setup-title">{session.title}</h1>
           <p>Choose the OBS source and audio inputs, then verify them before recording.</p>
         </div>
-        <Button onClick={onOpenConnection}>
+        <Button disabled={isPreparingConnection} onClick={onOpenConnection}>
           <Settings2 size={17} />
           OBS connection
         </Button>
       </header>
 
-      {!status.connected ? (
+      {!isReady ? (
         <div className="onboarding-panel">
           <span className="onboarding-panel__icon">
             <MonitorUp size={28} />
           </span>
           <div>
-            <h2>Connect OBS Studio</h2>
-            <p>Enable the OBS WebSocket server and connect before selecting a capture target.</p>
+            <h2>
+              {status.phase === 'recovering'
+                ? 'Reconnecting to OBS Studio'
+                : status.connected
+                  ? 'Preparing OBS Studio'
+                  : 'Connect OBS Studio'}
+            </h2>
+            <p>
+              {isPreparingConnection
+                ? 'Waiting for the OBS connection and recording resources to become ready.'
+                : status.phase === 'recovering'
+                  ? 'SessionScribe is reconnecting automatically, or you can connect manually.'
+                  : 'Enable the OBS WebSocket server and connect before selecting a capture target.'}
+            </p>
           </div>
-          <Button variant="primary" onClick={onOpenConnection}>
-            <PlugZap size={17} />
-            Connect OBS
-          </Button>
+          {isPreparingConnection ? (
+            <LoaderCircle className="spin" size={20} />
+          ) : (
+            <Button variant="primary" onClick={onOpenConnection}>
+              <PlugZap size={17} />
+              Connect OBS
+            </Button>
+          )}
         </div>
       ) : (
         <>

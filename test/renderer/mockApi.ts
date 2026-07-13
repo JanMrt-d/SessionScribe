@@ -236,6 +236,7 @@ export function createMockApi(detailsOverrides: Partial<SessionDetails> = {}): M
         obsVersion: '32.0.0',
         phase: 'ready'
       })),
+      cancelConnect: vi.fn(async () => undefined),
       disconnect: vi.fn(async () => undefined),
       discover: vi.fn(async () => ({ targets: [], audioDevices: [] })),
       configure: vi.fn(async (): Promise<CaptureStatus> => ({

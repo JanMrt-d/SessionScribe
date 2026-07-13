@@ -6,6 +6,8 @@ export interface ObsConnectionOptions {
   url: string
   password: string
   timeoutMs?: number
+  signal?: AbortSignal
+  deadlineMs?: number
 }
 
 export interface ObsVersionInfo {

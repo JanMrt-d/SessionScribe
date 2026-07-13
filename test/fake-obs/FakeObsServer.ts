@@ -61,6 +61,7 @@ export class FakeObsServer {
   private readonly server: WebSocketServer
   private readonly identifiedSockets = new Set<WebSocket>()
   private readonly failAfterMutation = new Set<string>()
+  private readonly hangBeforeResponse = new Set<string>()
   private readonly options: Required<
     Omit<FakeObsServerOptions, 'recordingFixturePath' | 'availableRequests'>
   > &
@@ -135,6 +136,10 @@ export class FakeObsServer {
 
   failNextResponseAfterMutation(requestType: string): void {
     this.failAfterMutation.add(requestType)
+  }
+
+  hangNextResponse(requestType: string): void {
+    this.hangBeforeResponse.add(requestType)
   }
 
   simulateExternalRecording(recordDirectory = process.cwd()): void {
@@ -216,6 +221,7 @@ export class FakeObsServer {
     const requestId = requiredString(data, 'requestId')
     const requestData = asRecord(data.requestData)
     this.requestLog.push({ requestType, requestData })
+    if (this.hangBeforeResponse.delete(requestType)) return
     try {
       const responseData = await this.dispatch(requestType, requestData)
       if (this.failAfterMutation.delete(requestType)) {

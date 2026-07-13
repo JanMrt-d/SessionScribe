@@ -367,6 +367,7 @@ export function App(): React.JSX.Element {
         onConnect={async (input) => {
           setCaptureStatus(await api.capture.connect(input))
         }}
+        onCancelConnect={() => api.capture.cancelConnect()}
         onDisconnect={async () => {
           await api.capture.disconnect()
           setCaptureStatus(DISCONNECTED_CAPTURE)

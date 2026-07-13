@@ -40,6 +40,147 @@ describe('OBS WebSocket v5 integration', () => {
     await gateway.disconnect()
   })
 
+  it('cancels a connection while OBS resource provisioning is waiting for a response', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sessionscribe-obs-cancel-'))
+    temporaryDirectories.push(root)
+    const server = await FakeObsServer.start()
+    server.hangNextResponse('GetProfileList')
+    servers.push(server)
+    const service = new ObsCaptureService({
+      recordingsRoot: join(root, 'recordings'),
+      activeManifestPath: join(root, 'active-recording.json'),
+      platform: 'windows'
+    })
+    const abortController = new AbortController()
+    const connection = service.connect({
+      url: server.url,
+      password: 'sessionscribe-test',
+      timeoutMs: 5_000,
+      deadlineMs: Date.now() + 5_000,
+      signal: abortController.signal
+    })
+    const cancelled = expect(connection).rejects.toMatchObject({ code: 'OBS_CONNECT_CANCELLED' })
+    await vi.waitFor(() => {
+      expect(server.requestLog.some((request) => request.requestType === 'GetProfileList')).toBe(
+        true
+      )
+    })
+
+    abortController.abort()
+    await service.cancelConnect()
+    await cancelled
+    await expect(service.status()).resolves.toMatchObject({
+      connected: false,
+      phase: 'disconnected'
+    })
+  })
+
+  it('cancels a connection that is waiting to apply recovered recording state', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sessionscribe-obs-recovery-cancel-'))
+    temporaryDirectories.push(root)
+    const server = await FakeObsServer.start()
+    servers.push(server)
+    const service = new ObsCaptureService({
+      recordingsRoot: join(root, 'recordings'),
+      activeManifestPath: join(root, 'state', 'active-recording.json'),
+      platform: 'windows'
+    })
+    const sessionId = randomUUID()
+    const recordDirectory = resolve(root, 'recordings', sessionId)
+    const timestamp = new Date().toISOString()
+    server.simulateExternalRecording(recordDirectory)
+    await service.manifestStore.save({
+      version: 1,
+      sessionId,
+      state: 'recording',
+      recordDirectory,
+      outputPaths: [],
+      profileName: 'SessionScribe',
+      sceneCollectionName: 'SessionScribe',
+      previousProfileName: 'Default',
+      previousSceneCollectionName: 'Default',
+      platform: 'windows',
+      configuration: {
+        targetId: 'window-planning',
+        microphoneDeviceId: null,
+        outputDeviceId: 'window-audio',
+        captureCursor: true
+      },
+      windowInputUuid: randomUUID(),
+      microphoneInputUuid: null,
+      systemAudioInputUuid: null,
+      startedAt: timestamp,
+      stopRequestedAt: null,
+      completedAt: null,
+      lastDurationMs: 0,
+      lastBytes: 0,
+      error: null,
+      updatedAt: timestamp
+    })
+
+    let releaseAdoption!: () => void
+    let markAdoptionStarted!: () => void
+    const adoptionStarted = new Promise<void>((resolveStarted) => {
+      markAdoptionStarted = resolveStarted
+    })
+    const adoptionGate = new Promise<void>((resolveAdoption) => {
+      releaseAdoption = resolveAdoption
+    })
+    const adoptRestorationLease = service.provisioner.adoptRestorationLease.bind(
+      service.provisioner
+    )
+    vi.spyOn(service.provisioner, 'adoptRestorationLease').mockImplementation(async (manifest) => {
+      markAdoptionStarted()
+      await adoptionGate
+      await adoptRestorationLease(manifest)
+    })
+    const abortController = new AbortController()
+    const connection = service.connect({
+      url: server.url,
+      password: 'sessionscribe-test',
+      signal: abortController.signal
+    })
+    const cancelled = expect(connection).rejects.toMatchObject({ code: 'OBS_CONNECT_CANCELLED' })
+    await adoptionStarted
+
+    abortController.abort()
+    await service.cancelConnect()
+    releaseAdoption()
+    await cancelled
+
+    await expect(service.status()).resolves.toMatchObject({
+      connected: false,
+      phase: 'disconnected'
+    })
+    expect(service.gateway.connected).toBe(false)
+  })
+
+  it('returns to ready after an OBS capture configuration request fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sessionscribe-obs-configure-failure-'))
+    temporaryDirectories.push(root)
+    const server = await FakeObsServer.start()
+    servers.push(server)
+    const service = new ObsCaptureService({
+      recordingsRoot: join(root, 'recordings'),
+      activeManifestPath: join(root, 'active-recording.json'),
+      platform: 'windows'
+    })
+    await service.connect({ url: server.url, password: 'sessionscribe-test' })
+    await service.discover()
+    server.failNextResponseAfterMutation('SetInputSettings')
+
+    await expect(
+      service.configure({
+        targetId: 'window-planning',
+        microphoneDeviceId: 'device-default',
+        outputDeviceId: 'window-audio',
+        captureCursor: true
+      })
+    ).rejects.toBeTruthy()
+    await expect(service.status()).resolves.toMatchObject({ connected: true, phase: 'ready' })
+    await service.disconnect()
+  })
+
   it('provisions, configures, records, reconciles a lost stop response, and validates the artifact', async () => {
     const root = await mkdtemp(join(tmpdir(), 'sessionscribe-obs-'))
     temporaryDirectories.push(root)
@@ -149,6 +290,46 @@ describe('OBS WebSocket v5 integration', () => {
     ).rejects.toMatchObject({ code: 'OBS_EXTERNAL_RECORDING_ACTIVE' })
     const requests = server.requestLog.map((request) => request.requestType)
     expect(requests).toEqual(['GetVersion', 'GetRecordStatus'])
+    await service.disconnect()
+  })
+
+  it('stops automatic recovery reconnect before a manual connection takes ownership', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sessionscribe-obs-manual-reconnect-'))
+    temporaryDirectories.push(root)
+    const firstServer = await FakeObsServer.start()
+    servers.push(firstServer)
+    const service = new ObsCaptureService({
+      recordingsRoot: join(root, 'recordings'),
+      activeManifestPath: join(root, 'active-recording.json'),
+      platform: 'windows',
+      controllerOptions: { wait: () => Promise.resolve() }
+    })
+    await service.connect({ url: firstServer.url, password: 'sessionscribe-test' })
+    await service.configure({
+      targetId: 'window-planning',
+      microphoneDeviceId: null,
+      outputDeviceId: 'window-audio',
+      captureCursor: true
+    })
+    const sessionId = randomUUID()
+    await service.start(sessionId, join(root, 'recordings', sessionId))
+
+    await firstServer.close()
+    servers.splice(servers.indexOf(firstServer), 1)
+    await vi.waitFor(async () => {
+      expect(await service.status()).toMatchObject({ connected: false, phase: 'recovering' })
+    })
+
+    const replacementServer = await FakeObsServer.start()
+    servers.push(replacementServer)
+    await expect(
+      service.connect({ url: replacementServer.url, password: 'sessionscribe-test' })
+    ).resolves.toMatchObject({ connected: true, phase: 'ready', activeSessionId: null })
+    expect(replacementServer.requestLog.map((request) => request.requestType)).toContain(
+      'GetVersion'
+    )
+
+    await service.acknowledgeRecording(sessionId)
     await service.disconnect()
   })
 

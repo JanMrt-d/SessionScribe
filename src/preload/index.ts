@@ -30,6 +30,7 @@ const api: SessionScribeApi = {
   },
   capture: {
     connect: (input) => invoke<CaptureStatus>('capture.connect', input),
+    cancelConnect: () => invoke<void>('capture.cancelConnect'),
     disconnect: () => invoke<void>('capture.disconnect'),
     discover: () =>
       invoke<{ targets: CaptureTarget[]; audioDevices: AudioDevice[] }>('capture.discover'),

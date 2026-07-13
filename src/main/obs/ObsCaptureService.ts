@@ -10,6 +10,7 @@ import {
 } from '@shared/capture'
 
 import { CaptureConfigurator, detectCapturePlatform } from './CaptureConfigurator'
+import { DEFAULT_REQUEST_TIMEOUT_MS } from './constants'
 import { ObsSubsystemError, toErrorMessage } from './errors'
 import { ObsGateway } from './ObsGateway'
 import { ObsProvisioner } from './ObsProvisioner'
@@ -23,6 +24,7 @@ import type {
   CaptureDiscovery,
   CapturePlatform,
   LoggerLike,
+  ObsConnectionOptions,
   RecordingArtifact,
   RecoveryResult
 } from './types'
@@ -78,6 +80,7 @@ export class ObsCaptureService extends EventEmitter<CaptureServiceEvents> {
   }
   private lastArtifactsValue: RecordingArtifact[] = []
   private reconnecting: Promise<void> | null = null
+  private reconnectAbort: AbortController | null = null
   private readonly logger: LoggerLike
   private readonly recordingsRoot: string
 
@@ -129,19 +132,31 @@ export class ObsCaptureService extends EventEmitter<CaptureServiceEvents> {
     return this.lastArtifactsValue
   }
 
-  async connect(input: { url: string; password: string }): Promise<CaptureStatus> {
+  async connect(input: ObsConnectionOptions): Promise<CaptureStatus> {
+    await this.stopAutomaticReconnect()
+    const context = {
+      ...(input.signal ? { signal: input.signal } : {}),
+      ...(input.deadlineMs !== undefined ? { deadlineMs: input.deadlineMs } : {})
+    }
+    return this.gateway.runWithConnectionContext(context, () => this.connectInContext(input))
+  }
+
+  private async connectInContext(input: ObsConnectionOptions): Promise<CaptureStatus> {
     this.updateStatus({ phase: 'configuring', warnings: [] })
     try {
       const version = await this.gateway.connect(input)
       this.updateStatus({ connected: true, obsVersion: version.obsVersion })
       const recovery = await this.recoveryService.recover()
+      throwIfConnectionCancelled(input.signal)
       if (recovery) {
         await this.handleRecoveryResult(recovery)
+        throwIfConnectionCancelled(input.signal)
         if (recovery.action === 'reattached' || recovery.action === 'ownership-conflict') {
           return this.snapshot()
         }
       }
       await this.provisioner.provisionBase()
+      throwIfConnectionCancelled(input.signal)
       if (recovery && ['finalized', 'interrupted', 'failed'].includes(recovery.action)) {
         this.provisioner.attachRecoveredResources(recovery.manifest)
       }
@@ -156,6 +171,12 @@ export class ObsCaptureService extends EventEmitter<CaptureServiceEvents> {
     }
   }
 
+  cancelConnect(): Promise<void> {
+    this.gateway.cancelPendingConnection()
+    this.updateStatus({ connected: false, obsVersion: null, phase: 'disconnected' })
+    return Promise.resolve()
+  }
+
   async disconnect(): Promise<void> {
     if (this.captureStatus.activeSessionId) {
       throw new ObsSubsystemError(
@@ -163,6 +184,7 @@ export class ObsCaptureService extends EventEmitter<CaptureServiceEvents> {
         'Stop the active SessionScribe recording before disconnecting from OBS'
       )
     }
+    await this.stopAutomaticReconnect()
     try {
       await this.provisioner.restorePreviousResources()
     } catch (error) {
@@ -203,9 +225,14 @@ export class ObsCaptureService extends EventEmitter<CaptureServiceEvents> {
     await this.requireObsIdle()
     const parsed = captureConfigurationSchema.parse(configuration)
     this.updateStatus({ phase: 'configuring' })
-    await this.configurator.configure(parsed)
-    this.updateStatus({ phase: 'ready' })
-    return this.snapshot()
+    try {
+      await this.configurator.configure(parsed)
+      this.updateStatus({ phase: 'ready' })
+      return this.snapshot()
+    } catch (error) {
+      this.updateStatus({ phase: this.gateway.connected ? 'ready' : 'disconnected' })
+      throw error
+    }
   }
 
   async preflight(): Promise<PreflightResult> {
@@ -389,7 +416,7 @@ export class ObsCaptureService extends EventEmitter<CaptureServiceEvents> {
     const closeCode = error && 'code' in error && typeof error.code === 'number' ? error.code : null
     if (closeCode === 4011) {
       this.addWarning('OBS invalidated this websocket session; reconnect manually.')
-      this.updateStatus({ connected: false, phase: 'recovering' })
+      this.updateStatus({ connected: false, phase: 'disconnected' })
       return
     }
     const manifest = this.controller.currentManifest
@@ -404,30 +431,59 @@ export class ObsCaptureService extends EventEmitter<CaptureServiceEvents> {
       activeSessionId
     })
     if (hasActiveSession && !this.reconnecting) {
-      this.reconnecting = this.reconnectActiveSession().finally(() => {
-        this.reconnecting = null
+      const abortController = new AbortController()
+      this.reconnectAbort = abortController
+      this.reconnecting = this.reconnectActiveSession(abortController.signal).finally(() => {
+        if (this.reconnectAbort === abortController) {
+          this.reconnecting = null
+          this.reconnectAbort = null
+        }
       })
     }
   }
 
-  private async reconnectActiveSession(): Promise<void> {
+  private async reconnectActiveSession(
+    signal: AbortSignal = new AbortController().signal
+  ): Promise<void> {
     let delayMs = 500
     const deadline = Date.now() + 30_000
-    while (Date.now() < deadline) {
-      await new Promise((resolveWait) => setTimeout(resolveWait, delayMs))
-      try {
-        const version = await this.gateway.reconnect()
-        this.updateStatus({ connected: true, obsVersion: version.obsVersion })
-        const result = await this.recoveryService.recover()
-        if (result) await this.handleRecoveryResult(result)
-        else this.updateStatus({ phase: 'ready', activeSessionId: null })
-        return
-      } catch (error) {
-        this.logger.warn('OBS reconnect attempt failed', { error: toErrorMessage(error) })
+    await this.gateway.runWithConnectionContext({ signal, deadlineMs: deadline }, async () => {
+      while (!signal.aborted && Date.now() < deadline) {
+        await waitForReconnect(delayMs, signal)
+        if (signal.aborted) return
+        try {
+          const remainingMs = Math.max(1, deadline - Date.now())
+          const version = await this.gateway.reconnect(
+            Math.min(DEFAULT_REQUEST_TIMEOUT_MS, remainingMs),
+            signal,
+            deadline
+          )
+          if (signal.aborted) return
+          this.updateStatus({ connected: true, obsVersion: version.obsVersion })
+          const result = await this.recoveryService.recover()
+          if (signal.aborted) return
+          if (result) await this.handleRecoveryResult(result)
+          else this.updateStatus({ phase: 'ready', activeSessionId: null })
+          return
+        } catch (error) {
+          if (signal.aborted) return
+          this.logger.warn('OBS reconnect attempt failed', { error: toErrorMessage(error) })
+        }
+        delayMs = Math.min(delayMs * 2, 5_000)
       }
-      delayMs = Math.min(delayMs * 2, 5_000)
+    })
+    if (!signal.aborted) {
+      this.addWarning('OBS could not be reconnected; the MKV will be recovered when OBS stops.')
+      this.updateStatus({ phase: 'disconnected' })
     }
-    this.addWarning('OBS could not be reconnected; the MKV will be recovered when OBS stops.')
+  }
+
+  private async stopAutomaticReconnect(): Promise<void> {
+    const reconnecting = this.reconnecting
+    if (!reconnecting) return
+    this.reconnectAbort?.abort()
+    this.gateway.cancelPendingConnection()
+    await reconnecting
   }
 
   private handleVolumeMeters(inputs: readonly unknown[]): void {
@@ -475,4 +531,28 @@ export class ObsCaptureService extends EventEmitter<CaptureServiceEvents> {
     this.captureStatus = captureStatusSchema.parse({ ...this.captureStatus, ...patch })
     this.emit('status', this.snapshot())
   }
+}
+
+function throwIfConnectionCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new ObsSubsystemError('OBS_CONNECT_CANCELLED', 'The OBS connection attempt was cancelled')
+  }
+}
+
+function waitForReconnect(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const cleanup = (): void => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', onAbort)
+    }
+    const finish = (): void => {
+      cleanup()
+      resolve()
+    }
+    const onAbort = (): void => finish()
+    const timer = setTimeout(finish, milliseconds)
+    timer.unref?.()
+    if (signal.aborted) return finish()
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
 }
