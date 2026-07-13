@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="SessionScribe">
+  <rect width="512" height="512" rx="88" fill="#1f4436" />
+  <rect x="199" y="92" width="114" height="218" rx="57" fill="#f8faf7" />
+  <path
+    d="M151 244v20c0 58 47 105 105 105s105-47 105-105v-20"
+    fill="none"
+    stroke="#f8faf7"
+    stroke-linecap="round"
+    stroke-width="30"
+  />
+  <path d="M256 369v55M202 424h108" fill="none" stroke="#f8faf7" stroke-linecap="round" stroke-width="30" />
+  <path d="M224 151h64M224 203h64M224 255h64" fill="none" stroke="#1f4436" stroke-linecap="round" stroke-width="15" />
+</svg>
