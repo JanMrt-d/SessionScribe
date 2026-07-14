@@ -42,6 +42,13 @@ export const localCliTranscriptionProfileSchema = baseProfileSchema.extend({
   inheritEnvironment: z.boolean()
 })
 
+export const managedWhisperProfileSchema = baseProfileSchema.extend({
+  task: z.literal('transcription'),
+  kind: z.literal('managed-whisper'),
+  model: z.literal('large-v3'),
+  language: z.string().nullable()
+})
+
 export const openAiSummaryProfileSchema = remoteBaseSchema.extend({
   task: z.literal('summary'),
   kind: z.literal('openai-compatible'),
@@ -66,6 +73,7 @@ export const providerProfileSchema = z.discriminatedUnion('kind', [
   elevenLabsProfileSchema,
   openAiTranscriptionProfileSchema,
   localCliTranscriptionProfileSchema,
+  managedWhisperProfileSchema,
   openAiSummaryProfileSchema,
   ollamaSummaryProfileSchema
 ])

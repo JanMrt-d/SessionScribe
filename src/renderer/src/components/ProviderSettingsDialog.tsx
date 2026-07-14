@@ -15,7 +15,9 @@ import {
 } from 'lucide-react'
 import type { ProviderInput } from '@shared/ipc'
 import type { ProviderProfileV1 } from '@shared/providers'
+import type { ManagedWhisperStatus } from '@shared/whisper'
 import { Button, IconButton, InlineNotice, Modal, SelectField } from './ui'
+import { WhisperStatusCard, type WhisperAction } from './WhisperStatusCard'
 
 type ProviderKind = ProviderProfileV1['kind']
 type Pair = { key: string; value: string }
@@ -55,25 +57,42 @@ interface ProviderSettingsDialogProps {
   open: boolean
   profiles: ProviderProfileV1[]
   encryptionAvailable: boolean
+  whisperStatus: ManagedWhisperStatus | null
+  whisperAction: WhisperAction
   onOpenChange(open: boolean): void
   onChooseExecutable(): Promise<string | null>
   onSave(input: ProviderInput): Promise<ProviderProfileV1>
   onDelete(id: string): Promise<void>
   onTest(input: ProviderInput): Promise<{ ok: boolean; message: string; models?: string[] }>
+  onInstallWhisper(): Promise<void>
+  onCancelWhisperInstall(): Promise<void>
+  onStartWhisper(): Promise<void>
+  onStopWhisper(): Promise<void>
 }
 
 export function ProviderSettingsDialog({
   open,
   profiles,
   encryptionAvailable,
+  whisperStatus,
+  whisperAction,
   onOpenChange,
   onChooseExecutable,
   onSave,
   onDelete,
-  onTest
+  onTest,
+  onInstallWhisper,
+  onCancelWhisperInstall,
+  onStartWhisper,
+  onStopWhisper
 }: ProviderSettingsDialogProps): React.JSX.Element {
-  const [selectedId, setSelectedId] = useState<string | null>(profiles[0]?.id ?? null)
-  const selectedProfile = profiles.find((profile) => profile.id === selectedId) ?? null
+  // `undefined` means the asynchronously loaded profile list has not been
+  // initialized yet; `null` deliberately represents the new-profile editor.
+  const [selectedId, setSelectedId] = useState<string | null | undefined>(profiles[0]?.id)
+  const selectedProfile =
+    typeof selectedId === 'string'
+      ? (profiles.find((profile) => profile.id === selectedId) ?? null)
+      : null
   const [form, setForm] = useState<ProviderFormState>(() =>
     selectedProfile ? profileToForm(selectedProfile) : newProviderForm('openai-transcription')
   )
@@ -87,8 +106,16 @@ export function ProviderSettingsDialog({
 
   useEffect(() => {
     if (!open) return
+    if (selectedId === undefined) {
+      const firstProfile = profiles[0]
+      if (firstProfile) {
+        setSelectedId(firstProfile.id)
+        setForm(profileToForm(firstProfile))
+      }
+      return
+    }
     if (selectedProfile) setForm(profileToForm(selectedProfile))
-  }, [open, selectedProfile])
+  }, [open, profiles, selectedId, selectedProfile])
 
   const grouped = useMemo(
     () => ({
@@ -197,18 +224,27 @@ export function ProviderSettingsDialog({
           <ProviderGroup
             title="Transcription"
             profiles={grouped.transcription}
-            selectedId={selectedId}
+            selectedId={selectedId ?? null}
             onSelect={selectProfile}
           />
           <ProviderGroup
             title="Summary"
             profiles={grouped.summary}
-            selectedId={selectedId}
+            selectedId={selectedId ?? null}
             onSelect={selectProfile}
           />
         </aside>
 
         <div className="settings-editor">
+          <WhisperStatusCard
+            status={whisperStatus}
+            action={whisperAction}
+            onInstall={onInstallWhisper}
+            onCancelInstall={onCancelWhisperInstall}
+            onStart={onStartWhisper}
+            onStop={onStopWhisper}
+          />
+
           {!encryptionAvailable ? (
             <InlineNotice tone="warning" icon={<KeyRound size={18} />}>
               <strong>Secure credential storage is unavailable</strong>
@@ -268,6 +304,7 @@ export function ProviderSettingsDialog({
                 <input
                   value={form.model}
                   required
+                  readOnly={form.kind === 'managed-whisper'}
                   list="provider-model-suggestions"
                   onChange={(event) => setForm({ ...form, model: event.target.value })}
                   placeholder="Enter any model identifier"
@@ -280,7 +317,7 @@ export function ProviderSettingsDialog({
                   </datalist>
                 ) : null}
               </label>
-              {form.kind !== 'local-cli' ? (
+              {form.kind !== 'local-cli' && form.kind !== 'managed-whisper' ? (
                 <label className="field">
                   <span className="field__label">Base URL</span>
                   <input
@@ -316,19 +353,23 @@ export function ProviderSettingsDialog({
               onChooseExecutable={chooseExecutable}
             />
 
-            <KeyValueEditor
-              title="Secrets"
-              description="Use any field names required by the adapter, such as apiKey. Existing values stay stored when left blank."
-              pairs={form.secrets}
-              secret
-              onChange={(secrets) => setForm({ ...form, secrets })}
-            />
-            <KeyValueEditor
-              title="Extra headers"
-              description="Headers are sent only to this profile’s configured endpoint."
-              pairs={form.headers}
-              onChange={(headers) => setForm({ ...form, headers })}
-            />
+            {form.kind !== 'managed-whisper' ? (
+              <>
+                <KeyValueEditor
+                  title="Secrets"
+                  description="Use any field names required by the adapter, such as apiKey. Existing values stay stored when left blank."
+                  pairs={form.secrets}
+                  secret
+                  onChange={(secrets) => setForm({ ...form, secrets })}
+                />
+                <KeyValueEditor
+                  title="Extra headers"
+                  description="Headers are sent only to this profile’s configured endpoint."
+                  pairs={form.headers}
+                  onChange={(headers) => setForm({ ...form, headers })}
+                />
+              </>
+            ) : null}
 
             {testResult ? (
               <InlineNotice
@@ -375,6 +416,33 @@ function ProviderSpecificFields({
   onChange(form: ProviderFormState): void
   onChooseExecutable(): Promise<void>
 }): React.JSX.Element {
+  if (form.kind === 'managed-whisper') {
+    return (
+      <section className="provider-section">
+        <h3>Managed Whisper options</h3>
+        <div className="form-grid form-grid--two">
+          <label className="field">
+            <span className="field__label">Language code</span>
+            <input
+              aria-label="Language code"
+              value={form.language}
+              onChange={(event) => onChange({ ...form, language: event.target.value })}
+              placeholder="Auto detect"
+            />
+            <span className="field__hint">
+              Leave blank for automatic detection, or use a code such as en or de.
+            </span>
+          </label>
+          <div className="managed-whisper-facts">
+            <span>Model</span>
+            <strong>Whisper Large-v3</strong>
+            <small>Runs locally through the managed Vulkan container.</small>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
   if (form.kind === 'elevenlabs') {
     return (
       <section className="provider-section">
@@ -643,7 +711,10 @@ function ProviderGroup({
       <h3>{title}</h3>
       {profiles.map((profile) => (
         <button
+          type="button"
           className={profile.id === selectedId ? 'is-selected' : ''}
+          aria-label={`${profile.name} · ${profile.model}`}
+          aria-pressed={profile.id === selectedId}
           onClick={() => onSelect(profile)}
           key={profile.id}
         >
@@ -732,6 +803,7 @@ function KeyValueEditor({
 }
 
 const PROVIDER_KINDS: ProviderKind[] = [
+  'managed-whisper',
   'openai-transcription',
   'elevenlabs',
   'local-cli',
@@ -741,6 +813,7 @@ const PROVIDER_KINDS: ProviderKind[] = [
 
 function providerKindLabel(kind: ProviderKind): string {
   const labels: Record<ProviderKind, string> = {
+    'managed-whisper': 'Managed local Whisper',
     'openai-transcription': 'OpenAI transcription',
     elevenlabs: 'ElevenLabs transcription',
     'local-cli': 'Local CLI transcription',
@@ -751,7 +824,7 @@ function providerKindLabel(kind: ProviderKind): string {
 }
 
 function providerIcon(kind: ProviderKind): React.JSX.Element {
-  if (kind === 'local-cli') return <Cpu size={16} />
+  if (kind === 'local-cli' || kind === 'managed-whisper') return <Cpu size={16} />
   if (kind === 'ollama') return <Server size={16} />
   return <Cloud size={16} />
 }
@@ -765,15 +838,17 @@ function newProviderForm(kind: ProviderKind): ProviderFormState {
     name: '',
     kind,
     model:
-      kind === 'openai-transcription'
-        ? 'gpt-4o-transcribe-diarize'
-        : kind === 'elevenlabs'
-          ? 'scribe_v2'
-          : kind === 'openai-compatible'
-            ? 'gpt-5.6-terra'
-            : kind === 'ollama'
-              ? 'qwen3.5:9b'
-              : '',
+      kind === 'managed-whisper'
+        ? 'large-v3'
+        : kind === 'openai-transcription'
+          ? 'gpt-4o-transcribe-diarize'
+          : kind === 'elevenlabs'
+            ? 'scribe_v2'
+            : kind === 'openai-compatible'
+              ? 'gpt-5.6-terra'
+              : kind === 'ollama'
+                ? 'qwen3.5:9b'
+                : '',
     baseUrl:
       kind === 'ollama'
         ? 'http://127.0.0.1:11434'
@@ -800,7 +875,10 @@ function newProviderForm(kind: ProviderKind): ProviderFormState {
     lecturePromptOverride: '',
     numPredict: '',
     headers: [],
-    secrets: kind === 'ollama' || kind === 'local-cli' ? [] : [{ key: 'apiKey', value: '' }],
+    secrets:
+      kind === 'ollama' || kind === 'local-cli' || kind === 'managed-whisper'
+        ? []
+        : [{ key: 'apiKey', value: '' }],
     secretRefs: {}
   }
 }
@@ -824,6 +902,11 @@ function profileToForm(profile: ProviderProfileV1): ProviderFormState {
   if ('baseUrl' in profile) common.baseUrl = profile.baseUrl
 
   switch (profile.kind) {
+    case 'managed-whisper':
+      return {
+        ...common,
+        language: profile.language ?? ''
+      }
     case 'elevenlabs':
       return {
         ...common,
@@ -891,6 +974,16 @@ function formToProfile(form: ProviderFormState): ProviderProfileV1 {
   }
 
   switch (form.kind) {
+    case 'managed-whisper':
+      return {
+        ...common,
+        task: 'transcription',
+        kind: 'managed-whisper',
+        model: 'large-v3',
+        secretRefs: {},
+        extraHeaders: {},
+        language: form.language.trim() || null
+      }
     case 'elevenlabs':
       return {
         ...common,

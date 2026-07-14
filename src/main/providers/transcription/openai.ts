@@ -17,6 +17,17 @@ import type { OpenAiTranscriptionProfileV1 } from './types'
 
 type OpenAiResponseFormat = Exclude<OpenAiTranscriptionProfileV1['responseFormat'], 'auto'>
 
+export interface OpenAiCompatibleTranscriptionOptions {
+  providerKind: string
+  baseUrl: string
+  model: string
+  language: string | null
+  responseFormat: OpenAiResponseFormat
+  maxUploadBytes: number
+  timeoutMs: number
+  headers: Headers
+}
+
 export class OpenAiTranscriptionAdapter implements TranscriptionAdapter<OpenAiTranscriptionProfileV1> {
   readonly kind = 'openai-transcription' as const
 
@@ -38,78 +49,98 @@ export class OpenAiTranscriptionAdapter implements TranscriptionAdapter<OpenAiTr
     context: ProviderContext
   ) {
     try {
-      reportProgress(context, { stage: 'preflight', progress: 0 })
-      const input = await stat(request.filePath)
-      if (!input.isFile()) throw new Error('The transcription input is not a file')
-      if (input.size > profile.maxUploadBytes) {
-        throw new ProviderError(
-          'PAYLOAD_TOO_LARGE',
-          'The file exceeds the configured upload limit',
-          {
-            providerKind: this.kind,
-            operation: 'transcribe',
-            stage: 'preflight'
-          }
-        )
-      }
       const responseFormat = chooseResponseFormat(profile)
-      validateKnownSpeakers(request, responseFormat)
-      const endpoint = resolveSecureEndpoint(
-        profile.baseUrl,
-        openAiTranscriptionPath(profile.baseUrl),
-        context,
-        this.kind,
-        'transcribe'
-      )
       const headers = await resolveHttpHeaders(
         profile.extraHeaders,
         profile.secretRefs,
         context,
         httpCredentialOptionsFor(profile)
       )
-
-      reportProgress(context, { stage: 'upload', progress: 0.1 })
-      const response = await fetchWithRetry({
+      return await transcribeOpenAiCompatible(request, context, {
         providerKind: this.kind,
-        operation: 'transcribe',
-        timeoutMs: profile.timeoutMs,
-        context,
-        makeRequest: () => endpoint,
-        makeInit: async () => ({
-          method: 'POST',
-          headers,
-          body: await makeOpenAiForm(request, profile, responseFormat)
-        })
-      })
-      reportProgress(context, { stage: 'parse', progress: 0.9 })
-      const raw: RawTranscript =
-        responseFormat === 'text'
-          ? { text: await readTextResponse(response, this.kind) }
-          : parseOpenAiTranscript(await readJsonResponse(response, this.kind))
-      if (request.knownSpeakers?.length) {
-        raw.speakerDisplayNames = Object.fromEntries(
-          request.knownSpeakers.map((speaker) => [speaker.speakerId, speaker.displayName])
-        )
-      }
-      const language = profile.language ?? request.languageHint
-      if (!raw.languages?.length && language) raw.languages = [language]
-      const result = normalizeTranscript(raw, {
-        sessionId: request.sessionId,
-        sourceSha256: request.sourceSha256,
-        durationMs: request.durationMs,
-        providerKind: this.kind,
+        baseUrl: profile.baseUrl,
         model: profile.model,
-        generatedAt: providerNow(context).toISOString()
+        language: profile.language,
+        responseFormat,
+        maxUploadBytes: profile.maxUploadBytes,
+        timeoutMs: profile.timeoutMs,
+        headers
       })
-      reportProgress(context, { stage: 'parse', progress: 1 })
-      return result
     } catch (error) {
       throw normalizeProviderError(error, {
         providerKind: this.kind,
         operation: 'transcribe',
-        stage: 'parse'
+        stage: 'preflight'
       })
     }
+  }
+}
+
+export async function transcribeOpenAiCompatible(
+  request: TranscriptionRequest,
+  context: ProviderContext,
+  options: OpenAiCompatibleTranscriptionOptions
+) {
+  try {
+    reportProgress(context, { stage: 'preflight', progress: 0 })
+    const input = await stat(request.filePath)
+    if (!input.isFile()) throw new Error('The transcription input is not a file')
+    if (input.size > options.maxUploadBytes) {
+      throw new ProviderError('PAYLOAD_TOO_LARGE', 'The file exceeds the configured upload limit', {
+        providerKind: options.providerKind,
+        operation: 'transcribe',
+        stage: 'preflight'
+      })
+    }
+    validateKnownSpeakers(request, options.responseFormat, options.providerKind)
+    const endpoint = resolveSecureEndpoint(
+      options.baseUrl,
+      openAiTranscriptionPath(options.baseUrl),
+      context,
+      options.providerKind,
+      'transcribe'
+    )
+    reportProgress(context, { stage: 'upload', progress: 0.1 })
+    const response = await fetchWithRetry({
+      providerKind: options.providerKind,
+      operation: 'transcribe',
+      timeoutMs: options.timeoutMs,
+      context,
+      makeRequest: () => endpoint,
+      makeInit: async () => ({
+        method: 'POST',
+        headers: options.headers,
+        body: await makeOpenAiForm(request, options, options.responseFormat)
+      })
+    })
+    reportProgress(context, { stage: 'parse', progress: 0.9 })
+    const raw: RawTranscript =
+      options.responseFormat === 'text'
+        ? { text: await readTextResponse(response, options.providerKind) }
+        : parseOpenAiTranscript(await readJsonResponse(response, options.providerKind))
+    if (request.knownSpeakers?.length) {
+      raw.speakerDisplayNames = Object.fromEntries(
+        request.knownSpeakers.map((speaker) => [speaker.speakerId, speaker.displayName])
+      )
+    }
+    const language = options.language ?? request.languageHint
+    if (!raw.languages?.length && language) raw.languages = [language]
+    const result = normalizeTranscript(raw, {
+      sessionId: request.sessionId,
+      sourceSha256: request.sourceSha256,
+      durationMs: request.durationMs,
+      providerKind: options.providerKind,
+      model: options.model,
+      generatedAt: providerNow(context).toISOString()
+    })
+    reportProgress(context, { stage: 'parse', progress: 1 })
+    return result
+  } catch (error) {
+    throw normalizeProviderError(error, {
+      providerKind: options.providerKind,
+      operation: 'transcribe',
+      stage: 'parse'
+    })
   }
 }
 
@@ -123,7 +154,7 @@ function chooseResponseFormat(profile: OpenAiTranscriptionProfileV1): OpenAiResp
 
 async function makeOpenAiForm(
   request: TranscriptionRequest,
-  profile: OpenAiTranscriptionProfileV1,
+  profile: Pick<OpenAiCompatibleTranscriptionOptions, 'model' | 'language'>,
   responseFormat: OpenAiResponseFormat
 ): Promise<FormData> {
   const form = new FormData()
@@ -165,7 +196,8 @@ async function makeOpenAiForm(
 
 function validateKnownSpeakers(
   request: TranscriptionRequest,
-  responseFormat: OpenAiResponseFormat
+  responseFormat: OpenAiResponseFormat,
+  providerKind = 'openai-transcription'
 ): void {
   const speakers = request.knownSpeakers ?? []
   if (speakers.length === 0) return
@@ -174,7 +206,7 @@ function validateKnownSpeakers(
       'UNSUPPORTED_FEATURE',
       'Known-speaker references require diarized JSON output',
       {
-        providerKind: 'openai-transcription',
+        providerKind,
         operation: 'transcribe',
         stage: 'preflight'
       }
@@ -194,7 +226,7 @@ function validateKnownSpeakers(
       'INVALID_INPUT',
       'Known-speaker samples must have unique short IDs, valid MIME types, and durations between 2 and 10 seconds',
       {
-        providerKind: 'openai-transcription',
+        providerKind,
         operation: 'transcribe',
         stage: 'preflight'
       }
@@ -222,7 +254,18 @@ export function parseOpenAiTranscript(value: unknown): RawTranscript {
       }
     ]
   })
-  const words: RawTranscriptWord[] = array(object.words).flatMap((item) => {
+  const topLevelWords = array(object.words)
+  const wordItems =
+    topLevelWords.length > 0
+      ? topLevelWords
+      : segments.flatMap((item) => {
+          const segment = record(item)
+          const speaker = string(segment.speaker)
+          return array(segment.words).map((word) =>
+            speaker === undefined ? word : { ...record(word), speaker }
+          )
+        })
+  const words: RawTranscriptWord[] = wordItems.flatMap((item) => {
     const word = record(item)
     const text = string(word.word) ?? string(word.text)
     const start = number(word.start)

@@ -6,7 +6,7 @@ import type { SessionService } from '../sessions/SessionService'
 
 type CaptureProcessingSettings = {
   transcriptionProfileId: string
-  summaryProfileId: string
+  summaryProfileId: string | null
   mode: 'meeting' | 'lecture'
 }
 

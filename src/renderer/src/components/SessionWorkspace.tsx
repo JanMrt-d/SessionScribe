@@ -39,7 +39,7 @@ interface SessionWorkspaceProps {
   onStart(input: {
     sessionId: string
     transcriptionProfileId: string
-    summaryProfileId: string
+    summaryProfileId: string | null
   }): Promise<void>
   onStop(): Promise<void>
   onRetry(jobId: string): Promise<void>

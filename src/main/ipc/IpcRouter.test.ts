@@ -98,6 +98,58 @@ describe('IpcRouter OBS connection cancellation', () => {
   })
 })
 
+describe('IpcRouter managed Whisper', () => {
+  it('installs the runtime and creates an idempotent default profile', async () => {
+    const status = {
+      phase: 'stopped',
+      message: 'Whisper is installed and stopped.',
+      installed: true,
+      progress: null,
+      activeTranscriptions: 0,
+      idleStopAt: null,
+      canInstall: false,
+      canStart: true,
+      canStop: false
+    } as const
+    const profile = { id: 'managed-profile', kind: 'managed-whisper' }
+    const install = vi.fn(async () => status)
+    const ensureManagedWhisperDefault = vi.fn(() => profile)
+    const router = new IpcRouter({
+      profiles: { list: () => [], ensureManagedWhisperDefault },
+      whisper: { install }
+    } as never)
+    const invoke = (
+      router as unknown as {
+        invokeMethod(method: string, input: unknown): Promise<unknown>
+      }
+    ).invokeMethod.bind(router)
+
+    await expect(invoke('whisper.install', undefined)).resolves.toEqual({ status, profile })
+    expect(install).toHaveBeenCalledOnce()
+    expect(ensureManagedWhisperDefault).toHaveBeenCalledOnce()
+  })
+
+  it('accepts a missing summary profile while still requiring transcription', () => {
+    const getProviderProfile = vi.fn((id: string) =>
+      id === 'transcription'
+        ? { id, task: 'transcription', kind: 'managed-whisper' }
+        : null
+    )
+    const router = new IpcRouter({
+      profiles: { list: () => [] },
+      database: { getProviderProfile }
+    } as never)
+    const validate = (
+      router as unknown as {
+        validateProcessingProfiles(transcriptionId: string, summaryId: string | null): void
+      }
+    ).validateProcessingProfiles.bind(router)
+
+    expect(() => validate('transcription', null)).not.toThrow()
+    expect(() => validate('missing', null)).toThrow('Choose an available transcription provider')
+  })
+})
+
 function deferred<T>(): {
   promise: Promise<T>
   resolve(value: T): void

@@ -13,19 +13,27 @@ import {
   Upload
 } from 'lucide-react'
 import type { Session } from '@shared/domain'
+import type { ManagedWhisperStatus } from '@shared/whisper'
 import { formatDate, formatDuration, statusLabel } from '../lib/format'
 import { Button, IconButton } from './ui'
+import { WhisperStatusCard, type WhisperAction } from './WhisperStatusCard'
 
 interface SessionSidebarProps {
   sessions: Session[]
   selectedId: string | null
   activeSessionId: string | null
   version: string
+  whisperStatus: ManagedWhisperStatus | null
+  whisperAction: WhisperAction
   onSelect(id: string): void
   onCreate(): void
   onImport(): void
   onDelete(id: string): void
   onOpenSettings(): void
+  onInstallWhisper(): Promise<void>
+  onCancelWhisperInstall(): Promise<void>
+  onStartWhisper(): Promise<void>
+  onStopWhisper(): Promise<void>
 }
 
 export function SessionSidebar({
@@ -33,11 +41,17 @@ export function SessionSidebar({
   selectedId,
   activeSessionId,
   version,
+  whisperStatus,
+  whisperAction,
   onSelect,
   onCreate,
   onImport,
   onDelete,
-  onOpenSettings
+  onOpenSettings,
+  onInstallWhisper,
+  onCancelWhisperInstall,
+  onStartWhisper,
+  onStopWhisper
 }: SessionSidebarProps): React.JSX.Element {
   const [query, setQuery] = useState('')
   const filteredSessions = useMemo(() => {
@@ -147,6 +161,16 @@ export function SessionSidebar({
           })
         )}
       </nav>
+
+      <WhisperStatusCard
+        status={whisperStatus}
+        action={whisperAction}
+        compact
+        onInstall={onInstallWhisper}
+        onCancelInstall={onCancelWhisperInstall}
+        onStart={onStartWhisper}
+        onStop={onStopWhisper}
+      />
 
       <footer className="sidebar__footer">
         <button onClick={onOpenSettings}>

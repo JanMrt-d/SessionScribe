@@ -59,6 +59,25 @@ export class ProviderProfileService {
     return this.database.listProviderProfiles()
   }
 
+  ensureManagedWhisperDefault(): ProviderProfileV1 {
+    const existing = this.list().find((profile) => profile.kind === 'managed-whisper')
+    if (existing) return existing
+    const now = new Date().toISOString()
+    return this.database.saveProviderProfile({
+      id: randomUUID(),
+      name: 'Managed Whisper Large-v3',
+      task: 'transcription',
+      kind: 'managed-whisper',
+      model: 'large-v3',
+      timeoutMs: 3_600_000,
+      secretRefs: {},
+      extraHeaders: {},
+      language: null,
+      createdAt: now,
+      updatedAt: now
+    })
+  }
+
   validate(
     profile: ProviderProfileV1,
     secretNames: readonly string[] = [],
@@ -86,6 +105,12 @@ export class ProviderProfileService {
         if (!/^env:[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
           throw new Error('Local CLI secrets must use env:VARIABLE names')
         }
+      }
+      return
+    }
+    if (profile.kind === 'managed-whisper') {
+      if (Object.keys(profile.extraHeaders).length > 0 || configuredSecretNames.length > 0) {
+        throw new Error('Managed Whisper does not accept HTTP headers or credentials')
       }
       return
     }

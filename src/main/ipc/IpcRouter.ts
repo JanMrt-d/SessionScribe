@@ -10,6 +10,7 @@ import {
   sessionModeSchema,
   summaryDocumentSchema,
   transcriptDocumentSchema,
+  type ManagedWhisperStatus,
   type ProviderProfileV1,
   type SessionScribeEvent
 } from '@shared/index'
@@ -31,7 +32,7 @@ const createSessionSchema = z.object({ title: z.string().max(240), mode: session
 const importSchema = z.object({
   mode: sessionModeSchema,
   transcriptionProfileId: idSchema,
-  summaryProfileId: idSchema
+  summaryProfileId: idSchema.nullable()
 })
 const connectSchema = z.object({
   url: z.string().url(),
@@ -61,11 +62,20 @@ interface RouterDependencies {
   secrets: SecretStore
   capture: CaptureController
   processing: ProcessingController
+  whisper: {
+    status(signal?: AbortSignal): Promise<ManagedWhisperStatus>
+    install(signal?: AbortSignal): Promise<ManagedWhisperStatus>
+    cancelInstall(): void
+    start(signal?: AbortSignal): Promise<ManagedWhisperStatus>
+    stop(signal?: AbortSignal): Promise<ManagedWhisperStatus>
+    subscribe(listener: (status: ManagedWhisperStatus) => void): () => void
+  }
 }
 
 export class IpcRouter {
   private unsubscribeCapture: (() => void) | null = null
   private unsubscribeProcessing: (() => void) | null = null
+  private unsubscribeWhisper: (() => void) | null = null
   private readonly authorizedExportDirectories = new Set<string>()
   private readonly authorizedProviderExecutables = new Set<string>()
   private readonly captureStartProviderIds = new Set<string>()
@@ -99,12 +109,16 @@ export class IpcRouter {
       const session = this.dependencies.database.getSession(job.sessionId)
       if (session) this.emit({ type: 'session-updated', payload: session })
     })
+    this.unsubscribeWhisper = this.dependencies.whisper.subscribe((status) => {
+      this.emit({ type: 'whisper-status', payload: status })
+    })
   }
 
   dispose(): void {
     ipcMain.removeHandler(IPC.invoke)
     this.unsubscribeCapture?.()
     this.unsubscribeProcessing?.()
+    this.unsubscribeWhisper?.()
   }
 
   emit(event: SessionScribeEvent): void {
@@ -113,6 +127,7 @@ export class IpcRouter {
   }
 
   async prepareForShutdown(): Promise<void> {
+    this.dependencies.whisper.cancelInstall()
     await this.ipcOperations.blockAndWait()
   }
 
@@ -263,7 +278,7 @@ export class IpcRouter {
           .object({
             sessionId: idSchema,
             transcriptionProfileId: idSchema,
-            summaryProfileId: idSchema
+            summaryProfileId: idSchema.nullable()
           })
           .parse(input)
         if (this.captureStartingSessionId) {
@@ -288,7 +303,7 @@ export class IpcRouter {
         })
         this.captureStartingSessionId = parsed.sessionId
         this.captureStartProviderIds.add(parsed.transcriptionProfileId)
-        this.captureStartProviderIds.add(parsed.summaryProfileId)
+        if (parsed.summaryProfileId) this.captureStartProviderIds.add(parsed.summaryProfileId)
         try {
           const status = await services.capture.start(
             parsed.sessionId,
@@ -312,7 +327,7 @@ export class IpcRouter {
         } finally {
           this.captureStartingSessionId = null
           this.captureStartProviderIds.delete(parsed.transcriptionProfileId)
-          this.captureStartProviderIds.delete(parsed.summaryProfileId)
+          if (parsed.summaryProfileId) this.captureStartProviderIds.delete(parsed.summaryProfileId)
         }
       }
       case 'capture.stop': {
@@ -326,7 +341,7 @@ export class IpcRouter {
           this.emit({ type: 'session-updated', payload: attached })
           const processing = services.database.getSetting<{
             transcriptionProfileId: string
-            summaryProfileId: string
+            summaryProfileId: string | null
             mode: 'meeting' | 'lecture'
           } | null>(`capture-processing:${result.sessionId}`, null)
           if (processing) {
@@ -383,7 +398,7 @@ export class IpcRouter {
         if (activeSessionId) {
           const processing = services.database.getSetting<{
             transcriptionProfileId: string
-            summaryProfileId: string
+            summaryProfileId: string | null
           } | null>(`capture-processing:${activeSessionId}`, null)
           if (
             processing?.transcriptionProfileId === profileId ||
@@ -404,6 +419,25 @@ export class IpcRouter {
         services.profiles.validate(profile, Object.keys(parsed.secrets))
         return await services.processing.testProvider(profile, parsed.secrets)
       }
+      case 'whisper.status':
+        noInputSchema.parse(input)
+        return await services.whisper.status()
+      case 'whisper.install': {
+        noInputSchema.parse(input)
+        const status = await services.whisper.install()
+        const profile = services.profiles.ensureManagedWhisperDefault()
+        return { status, profile }
+      }
+      case 'whisper.cancelInstall':
+        noInputSchema.parse(input)
+        services.whisper.cancelInstall()
+        return undefined
+      case 'whisper.start':
+        noInputSchema.parse(input)
+        return await services.whisper.start()
+      case 'whisper.stop':
+        noInputSchema.parse(input)
+        return await services.whisper.stop()
       case 'jobs.retry': {
         const job = await services.processing.retry(idSchema.parse(input))
         this.emit({ type: 'job-updated', payload: job })
@@ -489,15 +523,17 @@ export class IpcRouter {
 
   private validateProcessingProfiles(
     transcriptionProfileId: string,
-    summaryProfileId: string
+    summaryProfileId: string | null
   ): void {
     const transcription = this.dependencies.database.getProviderProfile(transcriptionProfileId)
     if (!transcription || transcription.task !== 'transcription') {
       throw new Error('Choose an available transcription provider')
     }
-    const summary = this.dependencies.database.getProviderProfile(summaryProfileId)
-    if (!summary || summary.task !== 'summary') {
-      throw new Error('Choose an available summary provider')
+    if (summaryProfileId !== null) {
+      const summary = this.dependencies.database.getProviderProfile(summaryProfileId)
+      if (!summary || summary.task !== 'summary') {
+        throw new Error('Choose an available summary provider')
+      }
     }
   }
 

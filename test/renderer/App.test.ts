@@ -17,9 +17,11 @@ import {
   SUMMARY_PROFILE_ID,
   captureFixture,
   createMockApi,
+  managedWhisperProfileFixture,
   profilesFixture,
   sessionFixture,
-  transcriptFixture
+  transcriptFixture,
+  whisperStatusFixture
 } from './mockApi'
 
 beforeEach(() => {
@@ -31,6 +33,24 @@ beforeEach(() => {
       disconnect(): void {}
     }
   )
+  Object.defineProperties(HTMLElement.prototype, {
+    hasPointerCapture: {
+      configurable: true,
+      value: vi.fn(() => false)
+    },
+    setPointerCapture: {
+      configurable: true,
+      value: vi.fn()
+    },
+    releasePointerCapture: {
+      configurable: true,
+      value: vi.fn()
+    },
+    scrollIntoView: {
+      configurable: true,
+      value: vi.fn()
+    }
+  })
 })
 
 afterEach(() => {
@@ -73,6 +93,152 @@ describe('renderer workbench', () => {
         title: 'Distributed systems lecture',
         mode: 'lecture'
       })
+    })
+  })
+
+  it('installs managed Whisper from the persistent sidebar and refreshes profiles', async () => {
+    const api = createMockApi()
+    vi.mocked(api.providers.list)
+      .mockResolvedValueOnce(profilesFixture)
+      .mockResolvedValueOnce([...profilesFixture, managedWhisperProfileFixture])
+    const user = userEvent.setup()
+    renderApp(api)
+
+    await user.click(await screen.findByRole('button', { name: 'Set up Whisper' }))
+
+    await waitFor(() => expect(api.whisper.install).toHaveBeenCalledOnce())
+    await waitFor(() => expect(api.providers.list).toHaveBeenCalledTimes(2))
+    expect(await screen.findByRole('button', { name: 'Start Whisper' })).toBeTruthy()
+    expect(screen.getByText('Stopped · VRAM released')).toBeTruthy()
+  })
+
+  it('starts an installed Whisper service from the persistent accessible control', async () => {
+    const api = createMockApi()
+    vi.mocked(api.whisper.status).mockResolvedValue({
+      ...whisperStatusFixture,
+      phase: 'stopped',
+      message: 'Whisper is installed and stopped.',
+      installed: true,
+      canInstall: false,
+      canStart: true
+    })
+    const user = userEvent.setup()
+    renderApp(api)
+
+    const control = await screen.findByRole('region', { name: 'Local Whisper' })
+    await user.click(within(control).getByRole('button', { name: 'Start Whisper' }))
+
+    await waitFor(() => expect(api.whisper.start).toHaveBeenCalledOnce())
+    expect(within(control).getByText('Ready · using VRAM')).toBeTruthy()
+  })
+
+  it('tracks managed Whisper events and stops the ready service', async () => {
+    const api = createMockApi()
+    const user = userEvent.setup()
+    renderApp(api)
+    await screen.findByRole('heading', { name: 'Design sync' })
+
+    api.emit({
+      type: 'whisper-status',
+      payload: {
+        ...whisperStatusFixture,
+        phase: 'ready',
+        message: 'Whisper is ready.',
+        installed: true,
+        canInstall: false,
+        canStop: true
+      }
+    })
+    await user.click(await screen.findByRole('button', { name: 'Stop Whisper' }))
+
+    await waitFor(() => expect(api.whisper.stop).toHaveBeenCalledOnce())
+    expect(await screen.findByText('Stopped · VRAM released')).toBeTruthy()
+  })
+
+  it('shows managed Whisper installation progress and cancels setup from Settings', async () => {
+    const api = createMockApi()
+    const user = userEvent.setup()
+    renderApp(api)
+    await screen.findByRole('heading', { name: 'Design sync' })
+    await user.click(screen.getByRole('button', { name: 'Settings' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Provider settings' })
+
+    api.emit({
+      type: 'whisper-status',
+      payload: {
+        ...whisperStatusFixture,
+        phase: 'installing',
+        message: 'Downloading Whisper Large-v3.',
+        progress: {
+          step: 'downloading-model',
+          completedBytes: 1_500_000_000,
+          totalBytes: 3_000_000_000
+        },
+        canInstall: false
+      }
+    })
+
+    const progress = await within(dialog).findByRole('progressbar', {
+      name: 'Whisper installation progress'
+    })
+    expect(progress.getAttribute('aria-valuenow')).toBe('50')
+    expect(within(dialog).getByText('Downloading Large-v3')).toBeTruthy()
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel setup' }))
+    await waitFor(() => expect(api.whisper.cancelInstall).toHaveBeenCalledOnce())
+  })
+
+  it('shows actionable Docker permission diagnostics in Provider settings', async () => {
+    const api = createMockApi()
+    vi.mocked(api.whisper.status).mockResolvedValue({
+      ...whisperStatusFixture,
+      phase: 'permission-denied',
+      message: 'SessionScribe cannot access the Docker daemon.',
+      canInstall: false
+    })
+    const user = userEvent.setup()
+    renderApp(api)
+    await screen.findByRole('heading', { name: 'Design sync' })
+    await user.click(screen.getByRole('button', { name: 'Settings' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Provider settings' })
+    const control = within(dialog).getByRole('region', { name: 'Local Whisper' })
+    expect(within(control).getByText('Docker permission required')).toBeTruthy()
+    expect(within(control).getByText(/Configure rootless Docker/)).toBeTruthy()
+    expect(within(control).queryByRole('button', { name: 'Set up Whisper' })).toBeNull()
+  })
+
+  it('edits the language of a managed Whisper provider without credentials or endpoints', async () => {
+    const api = createMockApi()
+    vi.mocked(api.providers.list).mockResolvedValue([
+      managedWhisperProfileFixture,
+      ...profilesFixture
+    ])
+    const user = userEvent.setup()
+    renderApp(api)
+    await screen.findByRole('heading', { name: 'Design sync' })
+    await user.click(screen.getByRole('button', { name: 'Settings' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Provider settings' })
+
+    expect(
+      within(dialog).getByRole('button', {
+        name: 'Managed Whisper Large-v3 · large-v3',
+        pressed: true
+      })
+    ).toBeTruthy()
+    expect(dialog.querySelector('.provider-form')?.textContent).toContain('Managed Whisper options')
+    const language = await within(dialog).findByLabelText('Language code')
+    await user.type(language, 'de')
+    expect(within(dialog).queryByText('Base URL')).toBeNull()
+    expect(within(dialog).queryByText('Secrets')).toBeNull()
+    await user.click(within(dialog).getByRole('button', { name: 'Save profile' }))
+
+    await waitFor(() => {
+      const input = vi.mocked(api.providers.save).mock.calls[0]?.[0]
+      expect(input?.profile.kind).toBe('managed-whisper')
+      expect(input?.profile.model).toBe('large-v3')
+      expect(input?.profile.secretRefs).toEqual({})
+      expect(input?.secrets).toEqual({})
+      if (input?.profile.kind === 'managed-whisper') expect(input.profile.language).toBe('de')
     })
   })
 
@@ -324,5 +490,105 @@ describe('renderer workbench', () => {
         summaryProfileId: SUMMARY_PROFILE_ID
       })
     })
+  })
+
+  it('imports media without a summary provider for transcript-only processing', async () => {
+    const user = userEvent.setup()
+    const onImport = vi.fn(async () => sessionFixture)
+    render(
+      React.createElement(NewSessionDialog, {
+        open: true,
+        initialSource: 'import',
+        profiles: profilesFixture,
+        onOpenChange: vi.fn(),
+        onCreate: vi.fn(async () => sessionFixture),
+        onImport
+      })
+    )
+
+    await user.click(screen.getByRole('combobox', { name: 'Summary provider' }))
+    await user.click(await screen.findByRole('option', { name: 'No summary — transcript only' }))
+    await user.click(screen.getByRole('button', { name: 'Choose media' }))
+
+    await waitFor(() =>
+      expect(onImport).toHaveBeenCalledWith({
+        mode: 'meeting',
+        transcriptionProfileId: profilesFixture[0]!.id,
+        summaryProfileId: null
+      })
+    )
+  })
+
+  it('defaults to transcript-only import when no summary profiles exist', async () => {
+    const user = userEvent.setup()
+    const onImport = vi.fn(async () => sessionFixture)
+    render(
+      React.createElement(NewSessionDialog, {
+        open: true,
+        initialSource: 'import',
+        profiles: [profilesFixture[0]!],
+        onOpenChange: vi.fn(),
+        onCreate: vi.fn(async () => sessionFixture),
+        onImport
+      })
+    )
+
+    expect(screen.getByRole('combobox', { name: 'Summary provider' }).textContent).toContain(
+      'No summary — transcript only'
+    )
+    await user.click(screen.getByRole('button', { name: 'Choose media' }))
+
+    await waitFor(() =>
+      expect(onImport).toHaveBeenCalledWith({
+        mode: 'meeting',
+        transcriptionProfileId: profilesFixture[0]!.id,
+        summaryProfileId: null
+      })
+    )
+  })
+
+  it('starts an OBS recording with transcript-only processing', async () => {
+    const user = userEvent.setup()
+    const onStart = vi.fn(async () => undefined)
+    const onDiscover = vi.fn(async () => ({
+      targets: [
+        { id: 'target-1', label: 'Game window', platform: 'x11' as const, requiresPortal: false }
+      ],
+      audioDevices: []
+    }))
+    render(
+      React.createElement(CaptureWorkspace, {
+        session: sessionFixture,
+        status: { ...captureFixture, connected: true, phase: 'ready' },
+        profiles: profilesFixture,
+        onOpenConnection: vi.fn(),
+        onDiscover,
+        onConfigure: vi.fn(async () => undefined),
+        onSelectPortalTarget: vi.fn(async () => undefined),
+        onPreflight: vi.fn(async () => ({
+          ok: true,
+          blockers: [],
+          warnings: [],
+          screenshotDataUrl: null
+        })),
+        onStart,
+        onStop: vi.fn(async () => undefined)
+      })
+    )
+
+    await waitFor(() => expect(onDiscover).toHaveBeenCalledOnce())
+    await user.click(screen.getByRole('combobox', { name: 'Summary provider' }))
+    await user.click(await screen.findByRole('option', { name: 'No summary — transcript only' }))
+    await user.click(screen.getByRole('button', { name: 'Run preflight' }))
+    await screen.findByText('Ready to record')
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+
+    await waitFor(() =>
+      expect(onStart).toHaveBeenCalledWith({
+        sessionId: sessionFixture.id,
+        transcriptionProfileId: profilesFixture[0]!.id,
+        summaryProfileId: null
+      })
+    )
   })
 })

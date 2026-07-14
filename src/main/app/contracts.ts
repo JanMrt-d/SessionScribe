@@ -33,7 +33,7 @@ export interface ProcessingController {
   enqueue(input: {
     sessionId: string
     transcriptionProfileId: string
-    summaryProfileId: string
+    summaryProfileId: string | null
     mode: SessionMode
   }): Promise<Job>
   generateSummary(input: { sessionId: string; profileId: string; mode: SessionMode }): Promise<Job>

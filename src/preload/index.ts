@@ -12,6 +12,7 @@ import type { AudioDevice, CaptureStatus, CaptureTarget, PreflightResult } from 
 import type { ProviderProfileV1 } from '@shared/providers'
 import type { SummaryDocumentV1 } from '@shared/summary'
 import type { TranscriptDocumentV1 } from '@shared/transcript'
+import type { ManagedWhisperStatus } from '@shared/whisper'
 
 const invoke = <T>(method: string, input?: unknown): Promise<T> =>
   ipcRenderer.invoke(IPC.invoke, method, input) as Promise<T>
@@ -47,6 +48,14 @@ const api: SessionScribeApi = {
     save: (input: ProviderInput) => invoke<ProviderProfileV1>('providers.save', input),
     delete: (id) => invoke<void>('providers.delete', id),
     test: (input) => invoke('providers.test', input)
+  },
+  whisper: {
+    status: () => invoke<ManagedWhisperStatus>('whisper.status'),
+    install: () =>
+      invoke<{ status: ManagedWhisperStatus; profile: ProviderProfileV1 }>('whisper.install'),
+    cancelInstall: () => invoke<void>('whisper.cancelInstall'),
+    start: () => invoke<ManagedWhisperStatus>('whisper.start'),
+    stop: () => invoke<ManagedWhisperStatus>('whisper.stop')
   },
   jobs: {
     retry: (id) => invoke<Job>('jobs.retry', id),

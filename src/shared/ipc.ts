@@ -2,6 +2,7 @@ import type { AppBootstrap, Job, Session, SessionMode } from './domain'
 import type { ProviderProfileV1 } from './providers'
 import type { SummaryDocumentV1 } from './summary'
 import type { TranscriptDocumentV1 } from './transcript'
+import type { ManagedWhisperStatus } from './whisper'
 import type {
   AudioDevice,
   CaptureConfiguration,
@@ -42,7 +43,7 @@ export interface SessionScribeApi {
     importMedia(input: {
       mode: SessionMode
       transcriptionProfileId: string
-      summaryProfileId: string
+      summaryProfileId: string | null
     }): Promise<Session>
     delete(id: string): Promise<void>
   }
@@ -61,7 +62,7 @@ export interface SessionScribeApi {
     start(input: {
       sessionId: string
       transcriptionProfileId: string
-      summaryProfileId: string
+      summaryProfileId: string | null
     }): Promise<CaptureStatus>
     stop(): Promise<CaptureStatus>
     status(): Promise<CaptureStatus>
@@ -72,6 +73,13 @@ export interface SessionScribeApi {
     save(input: ProviderInput): Promise<ProviderProfileV1>
     delete(id: string): Promise<void>
     test(input: ProviderInput): Promise<{ ok: boolean; message: string; models?: string[] }>
+  }
+  whisper: {
+    status(): Promise<ManagedWhisperStatus>
+    install(): Promise<{ status: ManagedWhisperStatus; profile: ProviderProfileV1 }>
+    cancelInstall(): Promise<void>
+    start(): Promise<ManagedWhisperStatus>
+    stop(): Promise<ManagedWhisperStatus>
   }
   jobs: {
     retry(id: string): Promise<Job>
@@ -110,6 +118,7 @@ export type SessionScribeEvent =
   | { type: 'capture-status'; payload: CaptureStatus }
   | { type: 'job-updated'; payload: Job }
   | { type: 'session-updated'; payload: Session }
+  | { type: 'whisper-status'; payload: ManagedWhisperStatus }
 
 export const IPC = {
   invoke: 'sessionscribe:invoke',

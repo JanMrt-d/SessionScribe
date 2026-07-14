@@ -4,6 +4,7 @@ import type { AppBootstrap, Job, Session } from '@shared/domain'
 import type { CaptureStatus } from '@shared/capture'
 import type { ProviderInput, SessionDetails } from '@shared/ipc'
 import type { ProviderProfileV1 } from '@shared/providers'
+import type { ManagedWhisperStatus } from '@shared/whisper'
 import { Button, EmptyState, IconButton, InlineNotice } from './components/ui'
 import { ExportDialog } from './components/ExportDialog'
 import { NewSessionDialog } from './components/NewSessionDialog'
@@ -11,6 +12,7 @@ import { ObsConnectionDialog } from './components/CaptureWorkspace'
 import { ProviderSettingsDialog } from './components/ProviderSettingsDialog'
 import { SessionSidebar } from './components/SessionSidebar'
 import { SessionWorkspace } from './components/SessionWorkspace'
+import type { WhisperAction } from './components/WhisperStatusCard'
 
 const DISCONNECTED_CAPTURE: CaptureStatus = {
   connected: false,
@@ -31,6 +33,8 @@ export function App(): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [details, setDetails] = useState<SessionDetails | null>(null)
   const [profiles, setProfiles] = useState<ProviderProfileV1[]>([])
+  const [whisperStatus, setWhisperStatus] = useState<ManagedWhisperStatus | null>(null)
+  const [whisperAction, setWhisperAction] = useState<WhisperAction>(null)
   const [captureStatus, setCaptureStatus] = useState<CaptureStatus>(DISCONNECTED_CAPTURE)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -53,14 +57,16 @@ export function App(): React.JSX.Element {
       const appBootstrap = await api.app.bootstrap()
       setBootstrap(appBootstrap)
       setSessions(appBootstrap.sessions)
-      const [providerProfiles, status] = await Promise.all([
+      const [providerProfiles, status, managedWhisperStatus] = await Promise.all([
         api.providers.list(),
         api.capture
           .status()
-          .catch(() => ({ ...DISCONNECTED_CAPTURE, connected: appBootstrap.obsConnected }))
+          .catch(() => ({ ...DISCONNECTED_CAPTURE, connected: appBootstrap.obsConnected })),
+        api.whisper.status().catch((cause: unknown) => whisperStatusError(cause))
       ])
       setProfiles(providerProfiles)
       setCaptureStatus(status)
+      setWhisperStatus(managedWhisperStatus)
       setSelectedId(
         (current) => current ?? appBootstrap.activeSessionId ?? appBootstrap.sessions[0]?.id ?? null
       )
@@ -102,6 +108,10 @@ export function App(): React.JSX.Element {
         setCaptureStatus(event.payload)
         return
       }
+      if (event.type === 'whisper-status') {
+        setWhisperStatus(event.payload)
+        return
+      }
       if (event.type === 'session-updated') {
         setSessions((current) => upsertSession(current, event.payload))
         setDetails((current) =>
@@ -111,6 +121,7 @@ export function App(): React.JSX.Element {
         )
         return
       }
+      if (event.type !== 'job-updated') return
       setDetails((current) => {
         if (!current || current.session.id !== event.payload.sessionId) return current
         return { ...current, jobs: upsertJob(current.jobs, event.payload) }
@@ -178,6 +189,65 @@ export function App(): React.JSX.Element {
     return saved
   }
 
+  async function installWhisper(): Promise<void> {
+    if (whisperAction !== null) return
+    setWhisperAction('install')
+    setNotice(null)
+    try {
+      const result = await api.whisper.install()
+      setWhisperStatus(result.status)
+      setProfiles((current) => upsertProfile(current, result.profile))
+      try {
+        setProfiles(await api.providers.list())
+      } catch {
+        setNotice('Whisper was installed, but provider profiles could not be refreshed.')
+      }
+    } catch (cause) {
+      setNotice(errorMessage(cause, 'Whisper setup could not be completed.'))
+    } finally {
+      setWhisperAction((current) => (current === 'install' ? null : current))
+    }
+  }
+
+  async function cancelWhisperInstall(): Promise<void> {
+    setWhisperAction('cancel')
+    setNotice(null)
+    try {
+      await api.whisper.cancelInstall()
+      setWhisperStatus(await api.whisper.status())
+    } catch (cause) {
+      setNotice(errorMessage(cause, 'Whisper setup could not be cancelled.'))
+    } finally {
+      setWhisperAction((current) => (current === 'cancel' ? null : current))
+    }
+  }
+
+  async function startWhisper(): Promise<void> {
+    if (whisperAction !== null) return
+    setWhisperAction('start')
+    setNotice(null)
+    try {
+      setWhisperStatus(await api.whisper.start())
+    } catch (cause) {
+      setNotice(errorMessage(cause, 'Whisper could not be started.'))
+    } finally {
+      setWhisperAction((current) => (current === 'start' ? null : current))
+    }
+  }
+
+  async function stopWhisper(): Promise<void> {
+    if (whisperAction !== null) return
+    setWhisperAction('stop')
+    setNotice(null)
+    try {
+      setWhisperStatus(await api.whisper.stop())
+    } catch (cause) {
+      setNotice(errorMessage(cause, 'Whisper could not be stopped.'))
+    } finally {
+      setWhisperAction((current) => (current === 'stop' ? null : current))
+    }
+  }
+
   if (loading) {
     return (
       <div className="app-loading">
@@ -210,6 +280,8 @@ export function App(): React.JSX.Element {
         selectedId={selectedId}
         activeSessionId={captureStatus.activeSessionId}
         version={bootstrap.version}
+        whisperStatus={whisperStatus}
+        whisperAction={whisperAction}
         onSelect={setSelectedId}
         onCreate={() => {
           setNewDialogSource('record')
@@ -221,6 +293,10 @@ export function App(): React.JSX.Element {
         }}
         onDelete={(id) => void deleteSession(id)}
         onOpenSettings={() => setProviderDialogOpen(true)}
+        onInstallWhisper={installWhisper}
+        onCancelWhisperInstall={cancelWhisperInstall}
+        onStartWhisper={startWhisper}
+        onStopWhisper={stopWhisper}
       />
 
       {selectedId && !details ? (
@@ -377,6 +453,8 @@ export function App(): React.JSX.Element {
         open={providerDialogOpen}
         profiles={profiles}
         encryptionAvailable={bootstrap.encryptionAvailable}
+        whisperStatus={whisperStatus}
+        whisperAction={whisperAction}
         onOpenChange={setProviderDialogOpen}
         onChooseExecutable={() => api.providers.chooseExecutable()}
         onSave={saveProvider}
@@ -385,6 +463,10 @@ export function App(): React.JSX.Element {
           setProfiles((current) => current.filter((profile) => profile.id !== id))
         }}
         onTest={(input) => api.providers.test(input)}
+        onInstallWhisper={installWhisper}
+        onCancelWhisperInstall={cancelWhisperInstall}
+        onStartWhisper={startWhisper}
+        onStopWhisper={stopWhisper}
       />
       {details ? (
         <ExportDialog
@@ -409,4 +491,30 @@ function upsertSession(sessions: Session[], session: Session): Session[] {
 function upsertJob(jobs: Job[], job: Job): Job[] {
   const remaining = jobs.filter((candidate) => candidate.id !== job.id)
   return [...remaining, job]
+}
+
+function upsertProfile(
+  profiles: ProviderProfileV1[],
+  profile: ProviderProfileV1
+): ProviderProfileV1[] {
+  return [...profiles.filter((candidate) => candidate.id !== profile.id), profile]
+}
+
+function whisperStatusError(cause: unknown): ManagedWhisperStatus {
+  return {
+    phase: 'error',
+    message: errorMessage(cause, 'The managed Whisper service could not be inspected.'),
+    installed: false,
+    progress: null,
+    activeTranscriptions: 0,
+    idleStopAt: null,
+    canInstall: false,
+    canStart: false,
+    canStop: false
+  }
+}
+
+function errorMessage(cause: unknown, fallback: string): string {
+  if (!(cause instanceof Error)) return fallback
+  return cause.message.replace(/^Error invoking remote method '[^']+':\s*/, '') || fallback
 }

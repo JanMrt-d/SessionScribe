@@ -180,6 +180,61 @@ describe('provider profile secrets', () => {
     ).rejects.toMatchObject({ code: 'INVALID_CONFIG' })
     database.close()
   })
+
+  it('accepts managed Whisper only without credentials or HTTP headers', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sessionscribe-profiles-'))
+    directories.push(root)
+    const database = new AppDatabase(join(root, 'app.db'))
+    const values = new Map<string, string>()
+    const service = new ProviderProfileService(database, memorySecretStore(values))
+    const profile = managedWhisperProfile()
+
+    const saved = await service.save(profile, {})
+    expect(saved).toMatchObject({
+      kind: 'managed-whisper',
+      model: 'large-v3',
+      secretRefs: {},
+      extraHeaders: {}
+    })
+    await expect(
+      service.save({ ...profile, id: randomUUID(), extraHeaders: { 'X-Tenant': 'local' } }, {})
+    ).rejects.toThrow(/does not accept HTTP headers or credentials/)
+    await expect(
+      service.save({ ...profile, id: randomUUID(), secretRefs: { apiKey: 'renderer-ref' } }, {})
+    ).rejects.toThrow(/does not accept HTTP headers or credentials/)
+    await expect(
+      service.save({ ...profile, id: randomUUID() }, { apiKey: 'secret-value' })
+    ).rejects.toThrow(/does not accept HTTP headers or credentials/)
+    expect(values.size).toBe(0)
+    database.close()
+  })
+
+  it('creates the managed Whisper default once and returns it idempotently', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sessionscribe-profiles-'))
+    directories.push(root)
+    const database = new AppDatabase(join(root, 'app.db'))
+    const service = new ProviderProfileService(database, memorySecretStore(new Map()))
+    await service.initializeDefaults()
+
+    const first = service.ensureManagedWhisperDefault()
+    const second = service.ensureManagedWhisperDefault()
+    const managedProfiles = service.list().filter((profile) => profile.kind === 'managed-whisper')
+
+    expect(second).toEqual(first)
+    expect(managedProfiles).toEqual([first])
+    expect(first).toMatchObject({
+      name: 'Managed Whisper Large-v3',
+      task: 'transcription',
+      kind: 'managed-whisper',
+      model: 'large-v3',
+      timeoutMs: 3_600_000,
+      secretRefs: {},
+      extraHeaders: {},
+      language: null
+    })
+    expect(service.list()).toHaveLength(3)
+    database.close()
+  })
 })
 
 function transcriptionProfile(secretRefs: Record<string, string>): ProviderProfileV1 {
@@ -237,4 +292,21 @@ function memorySecretStore(values: Map<string, string>): SecretStore {
       values.delete(reference)
     }
   } as SecretStore
+}
+
+function managedWhisperProfile(): ProviderProfileV1 {
+  const now = new Date().toISOString()
+  return {
+    id: randomUUID(),
+    name: 'Managed Whisper Large-v3',
+    task: 'transcription',
+    kind: 'managed-whisper',
+    model: 'large-v3',
+    timeoutMs: 3_600_000,
+    secretRefs: {},
+    extraHeaders: {},
+    language: null,
+    createdAt: now,
+    updatedAt: now
+  }
 }

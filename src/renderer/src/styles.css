@@ -261,7 +261,7 @@ h3 {
 
 .sidebar {
   display: grid;
-  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto auto;
   min-width: 0;
   height: 100%;
   border-right: 1px solid var(--border);
@@ -508,6 +508,149 @@ h3 {
 .sidebar__footer button:hover {
   background: #e8ecea;
   color: var(--text);
+}
+
+.whisper-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+}
+
+.whisper-card--compact {
+  margin: 0 10px 10px;
+  padding: 10px;
+}
+
+.whisper-card--full {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 14px;
+}
+
+.whisper-card--full > p,
+.whisper-card--full > small,
+.whisper-card--full > .whisper-progress {
+  grid-column: 1 / -1;
+}
+
+.whisper-card--warning {
+  border-color: #dfca96;
+  background: var(--warning-soft);
+}
+
+.whisper-card--danger {
+  border-color: #dda8a5;
+  background: var(--danger-soft);
+}
+
+.whisper-card--success {
+  border-color: #b8d5c7;
+  background: #f2f8f5;
+}
+
+.whisper-card__heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.whisper-card__icon {
+  display: inline-flex;
+  color: var(--text-soft);
+}
+
+.whisper-card--success .whisper-card__icon {
+  color: var(--accent);
+}
+
+.whisper-card--warning .whisper-card__icon {
+  color: var(--warning);
+}
+
+.whisper-card--danger .whisper-card__icon {
+  color: var(--danger);
+}
+
+.whisper-card__heading strong,
+.whisper-card__heading span,
+.whisper-card > p,
+.whisper-card > small {
+  display: block;
+  min-width: 0;
+}
+
+.whisper-card__heading strong {
+  font-size: 12px;
+}
+
+.whisper-card__heading div > span,
+.whisper-card > p,
+.whisper-card > small,
+.whisper-progress small {
+  color: var(--text-soft);
+  font-size: 10px;
+}
+
+.whisper-card__heading div > span {
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whisper-card > p {
+  font-size: 11px;
+}
+
+.whisper-card--compact > .button {
+  width: 100%;
+}
+
+.whisper-progress {
+  display: grid;
+  gap: 5px;
+}
+
+.whisper-progress > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-soft);
+  font-size: 10px;
+}
+
+.whisper-progress__track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #dce4e0;
+}
+
+.whisper-progress__track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 160ms ease;
+}
+
+.whisper-progress__track.is-indeterminate i {
+  width: 38%;
+  animation: whisper-progress 1.2s ease-in-out infinite;
+}
+
+@keyframes whisper-progress {
+  from {
+    transform: translateX(-105%);
+  }
+  to {
+    transform: translateX(270%);
+  }
 }
 
 .workspace {
@@ -2198,6 +2341,26 @@ h3 {
 
 .settings-editor > .inline-notice {
   margin-bottom: 14px;
+}
+
+.managed-whisper-facts {
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-muted);
+}
+
+.managed-whisper-facts > span,
+.managed-whisper-facts > small {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.managed-whisper-facts > strong {
+  font-size: 12px;
 }
 
 .settings-editor__heading {

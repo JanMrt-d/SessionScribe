@@ -6,9 +6,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   ElevenLabsTranscriptionAdapter,
   LocalCliTranscriptionAdapter,
+  ManagedWhisperTranscriptionAdapter,
   OpenAiTranscriptionAdapter
 } from '@main/providers'
-import type { TranscriptionRequest } from '@main/providers'
+import type { ManagedWhisperRuntime, TranscriptionRequest } from '@main/providers'
 import type { TranscriptionProfileV1 } from '@shared/providers'
 import {
   profileBase,
@@ -134,6 +135,146 @@ describe('transcription providers', () => {
     ])
   })
 
+  it('uses a managed Whisper lease and maps verbose JSON to a canonical transcript', async () => {
+    let receivedBody = ''
+    let receivedPath = ''
+    let acquiredSignal: AbortSignal | undefined
+    let releaseCount = 0
+    const fixture = await startFixtureServer(async (httpRequest, response) => {
+      receivedPath = httpRequest.url ?? ''
+      receivedBody = (await readRequestBody(httpRequest)).toString('utf8')
+      response.setHeader('content-type', 'application/json')
+      response.end(
+        JSON.stringify({
+          text: 'Hallo Welt.',
+          language: 'de',
+          segments: [{ text: 'Hallo Welt.', start: 0.15, end: 1.4 }],
+          words: [
+            { word: 'Hallo', start: 0.15, end: 0.7, probability: 0.98 },
+            { word: ' Welt.', start: 0.75, end: 1.4, probability: 0.97 }
+          ]
+        })
+      )
+    })
+    cleanupServers.push(fixture)
+    const input = await makeInputFile()
+    const context = providerContext()
+    const runtime: ManagedWhisperRuntime = {
+      acquire: async (signal) => {
+        acquiredSignal = signal
+        return {
+          endpoint: `${fixture.baseUrl}/v1`,
+          release: async () => {
+            releaseCount += 1
+          }
+        }
+      }
+    }
+
+    const transcript = await new ManagedWhisperTranscriptionAdapter(runtime).transcribe(
+      { ...transcriptionRequest(input), languageHint: 'en' },
+      managedWhisperProfile('de'),
+      context
+    )
+
+    expect(acquiredSignal).toBe(context.signal)
+    expect(releaseCount).toBe(1)
+    expect(receivedPath).toBe('/v1/audio/transcriptions')
+    expect(receivedBody).toContain('name="model"')
+    expect(receivedBody).toContain('large-v3')
+    expect(receivedBody).toContain('name="response_format"')
+    expect(receivedBody).toContain('verbose_json')
+    expect(receivedBody).toContain('name="language"')
+    expect(receivedBody).toContain('de')
+    expect(receivedBody).toContain('name="timestamp_granularities[]"')
+    expect(receivedBody).toContain('name="file"; filename="audio.wav"')
+    expect(transcript.text).toBe('Hallo Welt.')
+    expect(transcript.languages).toEqual(['de'])
+    expect(transcript.utterances[0]).toMatchObject({ startMs: 150, endMs: 1_400 })
+    expect(transcript.words.map((word) => [word.text, word.startMs, word.endMs])).toEqual([
+      ['Hallo', 150, 700],
+      [' Welt.', 750, 1_400]
+    ])
+    expect(transcript.provenance).toEqual({
+      providerKind: 'managed-whisper',
+      model: 'large-v3',
+      generatedAt: '2026-01-01T00:00:00.000Z'
+    })
+  })
+
+  it('releases the managed Whisper lease when the server rejects transcription', async () => {
+    let releaseCount = 0
+    const fixture = await startFixtureServer(async (httpRequest, response) => {
+      await readRequestBody(httpRequest)
+      response.statusCode = 400
+      response.setHeader('content-type', 'application/json')
+      response.end(JSON.stringify({ error: { message: 'Invalid audio fixture' } }))
+    })
+    cleanupServers.push(fixture)
+    const input = await makeInputFile()
+    const runtime: ManagedWhisperRuntime = {
+      acquire: async () => ({
+        endpoint: `${fixture.baseUrl}/v1`,
+        release: async () => {
+          releaseCount += 1
+        }
+      })
+    }
+
+    await expect(
+      new ManagedWhisperTranscriptionAdapter(runtime).transcribe(
+        transcriptionRequest(input),
+        managedWhisperProfile(null),
+        providerContext()
+      )
+    ).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+      providerKind: 'managed-whisper',
+      operation: 'transcribe',
+      stage: 'request'
+    })
+    expect(releaseCount).toBe(1)
+  })
+
+  it('cancels a managed Whisper request and releases its lease', async () => {
+    let notifyRequestStarted: (() => void) | undefined
+    const requestStarted = new Promise<void>((resolve) => {
+      notifyRequestStarted = resolve
+    })
+    const fixture = await startFixtureServer(async (httpRequest, response) => {
+      await readRequestBody(httpRequest)
+      notifyRequestStarted?.()
+      await new Promise<void>((resolve) => response.once('close', resolve))
+    })
+    cleanupServers.push(fixture)
+    const input = await makeInputFile()
+    let releaseCount = 0
+    const runtime: ManagedWhisperRuntime = {
+      acquire: async () => ({
+        endpoint: `${fixture.baseUrl}/v1`,
+        release: async () => {
+          releaseCount += 1
+        }
+      })
+    }
+    const controller = new AbortController()
+    const operation = new ManagedWhisperTranscriptionAdapter(runtime).transcribe(
+      transcriptionRequest(input),
+      managedWhisperProfile(null),
+      { ...providerContext(), signal: controller.signal }
+    )
+
+    await requestStarted
+    controller.abort()
+
+    await expect(operation).rejects.toMatchObject({
+      code: 'CANCELLED',
+      providerKind: 'managed-whisper',
+      operation: 'transcribe'
+    })
+    expect(releaseCount).toBe(1)
+  })
+
   it('runs a local CLI without a shell and parses stdout', async () => {
     const input = await makeInputFile()
     const output = JSON.stringify({
@@ -203,5 +344,17 @@ function transcriptionRequest(filePath: string): TranscriptionRequest {
     mimeType: 'audio/wav',
     durationMs: 2_000,
     glossary: ['architecture']
+  }
+}
+
+function managedWhisperProfile(
+  language: string | null
+): Extract<TranscriptionProfileV1, { kind: 'managed-whisper' }> {
+  return {
+    ...profileBase('large-v3'),
+    task: 'transcription',
+    kind: 'managed-whisper',
+    model: 'large-v3',
+    language
   }
 }

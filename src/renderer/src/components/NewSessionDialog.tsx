@@ -14,9 +14,11 @@ interface NewSessionDialogProps {
   onImport(input: {
     mode: SessionMode
     transcriptionProfileId: string
-    summaryProfileId: string
+    summaryProfileId: string | null
   }): Promise<Session>
 }
+
+const NO_SUMMARY_PROFILE_ID = 'transcript-only'
 
 export function NewSessionDialog({
   open,
@@ -30,7 +32,9 @@ export function NewSessionDialog({
   const [mode, setMode] = useState<SessionMode>('meeting')
   const [title, setTitle] = useState('')
   const [transcriptionProfileId, setTranscriptionProfileId] = useState('')
-  const [summaryProfileId, setSummaryProfileId] = useState('')
+  const [summaryProfileId, setSummaryProfileId] = useState(
+    () => profiles.find((profile) => profile.task === 'summary')?.id ?? NO_SUMMARY_PROFILE_ID
+  )
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -53,9 +57,9 @@ export function NewSessionDialog({
         : (transcriptionProfiles[0]?.id ?? '')
     )
     setSummaryProfileId((current) =>
-      summaryProfiles.some((profile) => profile.id === current)
+      current === NO_SUMMARY_PROFILE_ID || summaryProfiles.some((profile) => profile.id === current)
         ? current
-        : (summaryProfiles[0]?.id ?? '')
+        : (summaryProfiles[0]?.id ?? NO_SUMMARY_PROFILE_ID)
     )
   }, [initialSource, open, summaryProfiles, transcriptionProfiles])
 
@@ -70,13 +74,14 @@ export function NewSessionDialog({
         const transcriptionProfileAvailable = transcriptionProfiles.some(
           (profile) => profile.id === transcriptionProfileId
         )
-        const summaryProfileAvailable = summaryProfiles.some(
-          (profile) => profile.id === summaryProfileId
-        )
-        if (!transcriptionProfileAvailable || !summaryProfileAvailable) {
-          throw new Error('Choose both a transcription and summary provider before importing.')
+        if (!transcriptionProfileAvailable) {
+          throw new Error('Choose a transcription provider before importing.')
         }
-        await onImport({ mode, transcriptionProfileId, summaryProfileId })
+        await onImport({
+          mode,
+          transcriptionProfileId,
+          summaryProfileId: summaryProfileId === NO_SUMMARY_PROFILE_ID ? null : summaryProfileId
+        })
       }
       setTitle('')
       onOpenChange(false)
@@ -153,15 +158,18 @@ export function NewSessionDialog({
               label="Summary provider"
               value={summaryProfileId}
               onValueChange={setSummaryProfileId}
-              options={summaryProfiles.map((profile) => ({
-                value: profile.id,
-                label: `${profile.name} · ${profile.model}`
-              }))}
+              options={[
+                { value: NO_SUMMARY_PROFILE_ID, label: 'No summary — transcript only' },
+                ...summaryProfiles.map((profile) => ({
+                  value: profile.id,
+                  label: `${profile.name} · ${profile.model}`
+                }))
+              ]}
               placeholder="Choose summary provider"
             />
-            {transcriptionProfiles.length === 0 || summaryProfiles.length === 0 ? (
+            {transcriptionProfiles.length === 0 ? (
               <InlineNotice tone="warning">
-                Add one transcription and one summary provider in Settings before importing.
+                Add a transcription provider in Settings before importing.
               </InlineNotice>
             ) : null}
           </Tabs.Content>
@@ -180,8 +188,7 @@ export function NewSessionDialog({
           disabled={
             submitting ||
             (source === 'import' &&
-              (!transcriptionProfiles.some((profile) => profile.id === transcriptionProfileId) ||
-                !summaryProfiles.some((profile) => profile.id === summaryProfileId)))
+              !transcriptionProfiles.some((profile) => profile.id === transcriptionProfileId))
           }
         >
           {submitting ? <LoaderCircle className="spin" size={17} /> : null}

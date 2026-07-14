@@ -9,6 +9,7 @@ Renderer -> typed preload -> validated IPC -> application services
                                       |-> OBS WebSocket v5
                                       |-> SQLite and artifacts
                                       |-> FFmpeg/FFprobe
+                                      |-> managed Docker/Whisper runtime
                                       `-> provider adapters
 ```
 
@@ -19,7 +20,7 @@ Renderer -> typed preload -> validated IPC -> application services
 A recording or import creates a session and an isolated artifact directory. The persistent pipeline advances through:
 
 ```text
-probe -> playback-proxy -> extract-audio -> transcribe -> summarize -> ready
+probe -> playback-proxy -> extract-audio -> transcribe -> [summarize] -> ready
 ```
 
 Jobs record stage, progress, attempt, and a user-safe error. Local stages are idempotent. Restarted `running` jobs return to `queued`; because compatible provider APIs do not share an idempotency contract, a request interrupted before its result is persisted may be repeated after restart. Cancellation uses `AbortController` and terminates subprocesses.
@@ -32,6 +33,8 @@ The active-recording manifest is acknowledged only after media has a durable dat
 
 Transcription and summary adapters expose capabilities, accept arbitrary model strings, and return canonical documents. A built-in adapter consists of its profile schema, adapter class, registry entry, and conformance fixtures. Runtime JavaScript plugins are intentionally excluded; unsupported local engines can use the CLI adapter, and HTTP engines can use OpenAI-compatible or Ollama endpoints.
 
+The managed Whisper adapter leases a singleton main-process Docker service. The first lease starts the pinned Vulkan container and waits for model readiness; the last lease starts the idle-stop timer. Renderer calls expose only typed lifecycle actions and status, never Docker arguments, model paths, ports, or the Docker socket. Transcript-only jobs skip the optional summary stage, and a local Ollama summary forces an idle Whisper container to stop before inference so both models do not compete for VRAM.
+
 Meeting summaries contain grounded topics, decisions, action items, explicit-assignment metadata, open questions, and risks. Lecture summaries contain a grounded outline, concepts, examples, review questions, and key lessons. Evidence always points to existing transcript utterances.
 
 ## Security Invariants
@@ -41,6 +44,7 @@ Meeting summaries contain grounded topics, decisions, action items, explicit-ass
 - Renderer sandbox, context isolation, CSP, sender validation, and navigation blocking remain enabled.
 - Paths from OBS, imports, exports, and media URLs are resolved through real filesystem ancestors and confined to the expected root and session, including across symlinks.
 - Local CLI executables require an explicit native file-picker grant. Arguments are separate `argv` entries with `shell:false`; secrets enter only the child environment.
+- Managed Docker commands use fixed executables and argument arrays with `shell:false`; only an ownership-labelled, image-pinned container can be controlled. Its API is loopback-only, models are mounted read-only, Linux capabilities are dropped, and the Docker socket is never mounted.
 - Provider secret references are assigned by the main process under a per-profile namespace.
 - Retained provider credentials are revoked when a profile changes provider kind or normalized endpoint origin.
 - Provider response bodies are streamed into fixed limits before parsing: 64 MiB for successful output and 32 KiB for error details.

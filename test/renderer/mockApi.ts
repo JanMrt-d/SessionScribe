@@ -7,6 +7,7 @@ import type { SessionDetails, SessionScribeApi, SessionScribeEvent } from '../..
 import type { ProviderProfileV1 } from '../../src/shared/providers'
 import type { SummaryDocumentV1 } from '../../src/shared/summary'
 import type { TranscriptDocumentV1 } from '../../src/shared/transcript'
+import type { ManagedWhisperStatus } from '../../src/shared/whisper'
 
 export const SESSION_ID = '11111111-1111-4111-8111-111111111111'
 export const TRANSCRIPT_ID = '22222222-2222-4222-8222-222222222222'
@@ -14,6 +15,7 @@ export const SUMMARY_ID = '33333333-3333-4333-8333-333333333333'
 export const JOB_ID = '44444444-4444-4444-8444-444444444444'
 export const TRANSCRIPTION_PROFILE_ID = '55555555-5555-4555-8555-555555555555'
 export const SUMMARY_PROFILE_ID = '66666666-6666-4666-8666-666666666666'
+export const MANAGED_WHISPER_PROFILE_ID = '77777777-7777-4777-8777-777777777777'
 
 const now = '2026-07-13T10:00:00.000Z'
 
@@ -139,6 +141,32 @@ export const captureFixture: CaptureStatus = {
   microphoneLevel: 0,
   systemLevel: 0,
   warnings: []
+}
+
+export const whisperStatusFixture: ManagedWhisperStatus = {
+  phase: 'not-installed',
+  message: 'Whisper Large-v3 has not been installed yet.',
+  installed: false,
+  progress: null,
+  activeTranscriptions: 0,
+  idleStopAt: null,
+  canInstall: true,
+  canStart: false,
+  canStop: false
+}
+
+export const managedWhisperProfileFixture: ProviderProfileV1 = {
+  id: MANAGED_WHISPER_PROFILE_ID,
+  name: 'Managed Whisper Large-v3',
+  task: 'transcription',
+  kind: 'managed-whisper',
+  model: 'large-v3',
+  timeoutMs: 3_600_000,
+  secretRefs: {},
+  extraHeaders: {},
+  createdAt: now,
+  updatedAt: now,
+  language: null
 }
 
 export const profilesFixture: ProviderProfileV1[] = [
@@ -274,6 +302,42 @@ export function createMockApi(detailsOverrides: Partial<SessionDetails> = {}): M
       save: vi.fn(async (input) => input.profile),
       delete: vi.fn(async () => undefined),
       test: vi.fn(async () => ({ ok: true, message: 'Connection succeeded.' }))
+    },
+    whisper: {
+      status: vi.fn(async () => whisperStatusFixture),
+      install: vi.fn(
+        async (): Promise<{
+          status: ManagedWhisperStatus
+          profile: ProviderProfileV1
+        }> => ({
+          status: {
+            ...whisperStatusFixture,
+            phase: 'stopped',
+            message: 'Whisper is installed and stopped.',
+            installed: true,
+            canInstall: false,
+            canStart: true
+          },
+          profile: managedWhisperProfileFixture
+        })
+      ),
+      cancelInstall: vi.fn(async () => undefined),
+      start: vi.fn(async (): Promise<ManagedWhisperStatus> => ({
+        ...whisperStatusFixture,
+        phase: 'ready',
+        message: 'Whisper is ready.',
+        installed: true,
+        canInstall: false,
+        canStop: true
+      })),
+      stop: vi.fn(async (): Promise<ManagedWhisperStatus> => ({
+        ...whisperStatusFixture,
+        phase: 'stopped',
+        message: 'Whisper is stopped.',
+        installed: true,
+        canInstall: false,
+        canStart: true
+      }))
     },
     jobs: {
       retry: vi.fn(async (): Promise<Job> => ({

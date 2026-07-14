@@ -223,10 +223,12 @@ interface CaptureWorkspaceProps {
   onStart(input: {
     sessionId: string
     transcriptionProfileId: string
-    summaryProfileId: string
+    summaryProfileId: string | null
   }): Promise<void>
   onStop(): Promise<void>
 }
+
+const NO_SUMMARY_PROFILE_ID = 'transcript-only'
 
 export function CaptureWorkspace({
   session,
@@ -257,7 +259,9 @@ export function CaptureWorkspace({
   const [transcriptionProfileId, setTranscriptionProfileId] = useState(
     () => transcriptionProfiles[0]?.id ?? ''
   )
-  const [summaryProfileId, setSummaryProfileId] = useState(() => summaryProfiles[0]?.id ?? '')
+  const [summaryProfileId, setSummaryProfileId] = useState(
+    () => summaryProfiles[0]?.id ?? NO_SUMMARY_PROFILE_ID
+  )
   const [preflight, setPreflight] = useState<PreflightResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -306,9 +310,9 @@ export function CaptureWorkspace({
         : (transcriptionProfiles[0]?.id ?? '')
     )
     setSummaryProfileId((current) =>
-      summaryProfiles.some((profile) => profile.id === current)
+      current === NO_SUMMARY_PROFILE_ID || summaryProfiles.some((profile) => profile.id === current)
         ? current
-        : (summaryProfiles[0]?.id ?? '')
+        : (summaryProfiles[0]?.id ?? NO_SUMMARY_PROFILE_ID)
     )
   }, [summaryProfiles, transcriptionProfiles])
 
@@ -351,13 +355,14 @@ export function CaptureWorkspace({
       const transcriptionProfileAvailable = transcriptionProfiles.some(
         (profile) => profile.id === transcriptionProfileId
       )
-      const summaryProfileAvailable = summaryProfiles.some(
-        (profile) => profile.id === summaryProfileId
-      )
-      if (!transcriptionProfileAvailable || !summaryProfileAvailable) {
-        throw new Error('Choose both a transcription and summary provider before recording.')
+      if (!transcriptionProfileAvailable) {
+        throw new Error('Choose a transcription provider before recording.')
       }
-      await onStart({ sessionId: session.id, transcriptionProfileId, summaryProfileId })
+      await onStart({
+        sessionId: session.id,
+        transcriptionProfileId,
+        summaryProfileId: summaryProfileId === NO_SUMMARY_PROFILE_ID ? null : summaryProfileId
+      })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Recording could not be started.')
     } finally {
@@ -580,17 +585,20 @@ export function CaptureWorkspace({
               label="Summary provider"
               value={summaryProfileId}
               onValueChange={setSummaryProfileId}
-              options={summaryProfiles.map((profile) => ({
-                value: profile.id,
-                label: `${profile.name} · ${profile.model}`
-              }))}
+              options={[
+                { value: NO_SUMMARY_PROFILE_ID, label: 'No summary — transcript only' },
+                ...summaryProfiles.map((profile) => ({
+                  value: profile.id,
+                  label: `${profile.name} · ${profile.model}`
+                }))
+              ]}
               placeholder="Choose summary provider"
             />
           </div>
 
-          {transcriptionProfiles.length === 0 || summaryProfiles.length === 0 ? (
+          {transcriptionProfiles.length === 0 ? (
             <InlineNotice tone="warning">
-              Add transcription and summary providers in Settings before recording.
+              Add a transcription provider in Settings before recording.
             </InlineNotice>
           ) : null}
 
@@ -606,8 +614,7 @@ export function CaptureWorkspace({
               disabled={
                 busy ||
                 !preflight?.ok ||
-                !transcriptionProfiles.some((profile) => profile.id === transcriptionProfileId) ||
-                !summaryProfiles.some((profile) => profile.id === summaryProfileId)
+                !transcriptionProfiles.some((profile) => profile.id === transcriptionProfileId)
               }
               onClick={() => void start()}
             >

@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProviderProfileV1 } from '@shared/index'
 import type {
   ProviderCapabilities,
@@ -13,7 +13,10 @@ import { AppDatabase } from '@main/persistence/Database'
 import { ArtifactStore } from '@main/artifacts/ArtifactStore'
 import { SessionService } from '@main/sessions/SessionService'
 import { FfmpegService, runProcess } from '@main/media/FfmpegService'
-import { DurableProcessingController } from '@main/pipeline/ProcessingController'
+import {
+  DurableProcessingController,
+  type ManagedTranscriptionRuntime
+} from '@main/pipeline/ProcessingController'
 import {
   DeterministicFakeSummaryAdapter,
   DeterministicFakeTranscriptionAdapter,
@@ -56,13 +59,15 @@ describe('durable processing pipeline', () => {
       new DeterministicFakeTranscriptionAdapter('local-cli'),
       new DeterministicFakeSummaryAdapter('ollama')
     ])
+    const stopIfIdle = vi.fn(async () => undefined)
     const processing = new DurableProcessingController(
       database,
       artifacts,
       sessions,
       { get: async () => undefined },
       ffmpeg,
-      registry
+      registry,
+      { stopIfIdle }
     )
 
     const job = await processing.enqueue({
@@ -85,8 +90,78 @@ describe('durable processing pipeline', () => {
     expect(details.transcript?.utterances[0]?.text).toBe('Deterministic transcript.')
     expect(details.summary?.mode).toBe('meeting')
     expect(details.summaryStale).toBe(false)
+    expect(stopIfIdle).toHaveBeenCalledTimes(1)
     unsubscribe()
     database.close()
+  })
+
+  it('completes transcript-only processing and can summarize it later', async () => {
+    const fixture = await pipelineFixture('Transcript only')
+    const stopIfIdle = vi.fn(async () => undefined)
+    const processing = fixture.processing(
+      new DeterministicFakeTranscriptionAdapter('local-cli'),
+      { stopIfIdle }
+    )
+    const transcriptionJob = await processing.enqueue({
+      sessionId: fixture.session.id,
+      transcriptionProfileId: fixture.transcriptionProfile.id,
+      summaryProfileId: null,
+      mode: 'meeting'
+    })
+
+    await waitFor(() => fixture.database.getJob(transcriptionJob.id)?.status === 'succeeded')
+
+    const transcriptOnlyDetails = fixture.sessions.get(fixture.session.id)
+    expect(transcriptOnlyDetails.session.status).toBe('ready')
+    expect(transcriptOnlyDetails.transcript?.text).toBe('Deterministic transcript.')
+    expect(transcriptOnlyDetails.summary).toBeNull()
+    expect(stopIfIdle).not.toHaveBeenCalled()
+
+    const summaryJob = await processing.generateSummary({
+      sessionId: fixture.session.id,
+      profileId: fixture.summaryProfile.id,
+      mode: 'meeting'
+    })
+    await waitFor(() => fixture.database.getJob(summaryJob.id)?.status === 'succeeded')
+
+    expect(fixture.sessions.get(fixture.session.id).summary?.mode).toBe('meeting')
+    expect(stopIfIdle).toHaveBeenCalledTimes(1)
+    await processing.shutdown()
+    fixture.database.close()
+  })
+
+  it('reuses a persisted transcript when a transcript-only job resumes before completion', async () => {
+    const fixture = await pipelineFixture('Transcript-only recovery')
+    const firstAdapter = new CountingTranscriptionAdapter()
+    const processing = fixture.processing(firstAdapter)
+    const job = await processing.enqueue({
+      sessionId: fixture.session.id,
+      transcriptionProfileId: fixture.transcriptionProfile.id,
+      summaryProfileId: null,
+      mode: 'meeting'
+    })
+    await waitFor(() => fixture.database.getJob(job.id)?.status === 'succeeded')
+    expect(firstAdapter.calls).toBe(1)
+    await processing.shutdown()
+
+    fixture.database.updateJob(job.id, {
+      status: 'queued',
+      stage: 'transcribe',
+      progress: 0.74,
+      errorCode: null,
+      errorMessage: 'Paused for application shutdown'
+    })
+    const resumedAdapter = new CountingTranscriptionAdapter()
+    const resumed = fixture.processing(resumedAdapter)
+    resumed.resumePending()
+
+    await waitFor(() => fixture.database.getJob(job.id)?.status === 'succeeded')
+    expect(resumedAdapter.calls).toBe(0)
+    expect(fixture.sessions.get(fixture.session.id).transcript?.text).toBe(
+      'Deterministic transcript.'
+    )
+    await resumed.shutdown()
+    fixture.database.close()
   })
 
   it('pauses a running provider call on shutdown and resumes the durable job', async () => {
@@ -219,6 +294,25 @@ class BlockingTranscriptionAdapter implements TranscriptionAdapter<Transcription
   }
 }
 
+class CountingTranscriptionAdapter implements TranscriptionAdapter<TranscriptionProfileV1> {
+  readonly kind = 'local-cli' as const
+  readonly delegate = new DeterministicFakeTranscriptionAdapter('local-cli')
+  calls = 0
+
+  capabilities(): ProviderCapabilities {
+    return this.delegate.capabilities()
+  }
+
+  async transcribe(
+    request: TranscriptionRequest,
+    profile: TranscriptionProfileV1,
+    context: ProviderContext
+  ): Promise<TranscriptDocumentV1> {
+    this.calls += 1
+    return await this.delegate.transcribe(request, profile, context)
+  }
+}
+
 async function pipelineFixture(title: string): Promise<{
   database: AppDatabase
   sessions: SessionService
@@ -226,7 +320,10 @@ async function pipelineFixture(title: string): Promise<{
   source: string
   transcriptionProfile: ProviderProfileV1
   summaryProfile: ProviderProfileV1
-  processing(adapter: TranscriptionAdapter): DurableProcessingController
+  processing(
+    adapter: TranscriptionAdapter,
+    managedTranscriptionRuntime?: ManagedTranscriptionRuntime
+  ): DurableProcessingController
 }> {
   const root = await mkdtemp(join(tmpdir(), 'sessionscribe-pipeline-'))
   directories.push(root)
@@ -252,14 +349,15 @@ async function pipelineFixture(title: string): Promise<{
     source,
     transcriptionProfile,
     summaryProfile,
-    processing: (adapter) =>
+    processing: (adapter, managedTranscriptionRuntime) =>
       new DurableProcessingController(
         database,
         artifacts,
         sessions,
         { get: async () => undefined },
         ffmpeg,
-        new ProviderRegistry([adapter, new DeterministicFakeSummaryAdapter('ollama')])
+        new ProviderRegistry([adapter, new DeterministicFakeSummaryAdapter('ollama')]),
+        managedTranscriptionRuntime
       )
   }
 }

@@ -396,7 +396,7 @@ function cancelledError(options: FetchWithRetryOptions, cause?: unknown): Provid
 }
 
 function inferOperation(providerKind: string): ProviderOperation {
-  return providerKind === 'elevenlabs' || providerKind === 'openai-transcription'
+  return ['elevenlabs', 'openai-transcription', 'managed-whisper'].includes(providerKind)
     ? 'transcribe'
     : 'summarize'
 }

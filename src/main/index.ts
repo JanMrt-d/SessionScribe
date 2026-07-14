@@ -17,6 +17,7 @@ import { LaunchableObsCaptureController } from './capture/LaunchableObsCaptureCo
 import { RecoveredRecordingHandler } from './capture/RecoveredRecordingHandler'
 import type { CaptureController, ProcessingController } from './app/contracts'
 import { isTrustedRendererLocation } from './security/rendererNavigation'
+import { ManagedWhisperService } from './whisper'
 import packageMetadata from '../../package.json'
 
 protocol.registerSchemesAsPrivileged([
@@ -32,6 +33,7 @@ let router: IpcRouter | null = null
 let captureController: CaptureController | null = null
 let processingController: ProcessingController | null = null
 let sessionService: SessionService | null = null
+let whisperService: ManagedWhisperService | null = null
 let quitPreparing = false
 let quitFinalized = false
 
@@ -68,6 +70,8 @@ async function startApplication(): Promise<void> {
   const secrets = new SecretStore(join(userData, 'secrets.json'))
   const profiles = new ProviderProfileService(database, secrets)
   await profiles.initializeDefaults()
+  const whisper = new ManagedWhisperService({ dataDirectory: userData })
+  whisperService = whisper
   const sessions = new SessionService(database, artifacts)
   sessionService = sessions
   const exports = new ExportService(database)
@@ -93,7 +97,8 @@ async function startApplication(): Promise<void> {
     sessions,
     secrets,
     ffmpeg,
-    createDefaultProviderRegistry()
+    createDefaultProviderRegistry(whisper),
+    whisper
   )
   processingController = processing
   const recoveredRecordings = new RecoveredRecordingHandler(database, sessions, processing)
@@ -137,7 +142,8 @@ async function startApplication(): Promise<void> {
     artifacts,
     secrets,
     capture,
-    processing
+    processing,
+    whisper
   })
   router.register()
   processing.resumePending()
@@ -267,6 +273,7 @@ async function prepareToQuit(): Promise<void> {
       })
     }
     await processingController?.shutdown()
+    await whisperService?.shutdown()
     finalizeQuit()
   } catch (error) {
     dialog.showErrorBox(
@@ -284,7 +291,7 @@ async function stopRecordingBeforeQuit(capture: CaptureController): Promise<void
   sessionService.attachRecording(result.sessionId, result.outputPath, result.durationMs)
   const processing = database.getSetting<{
     transcriptionProfileId: string
-    summaryProfileId: string
+    summaryProfileId: string | null
     mode: 'meeting' | 'lecture'
   } | null>(`capture-processing:${result.sessionId}`, null)
   if (processing && processingController) {

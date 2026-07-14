@@ -18,7 +18,7 @@ import { logger } from '../logging/logger'
 type FullJobPayload = {
   kind: 'full'
   transcriptionProfileId: string
-  summaryProfileId: string
+  summaryProfileId: string | null
   mode: SessionMode
 }
 
@@ -29,6 +29,10 @@ type SummaryJobPayload = {
 }
 
 type PipelinePayload = FullJobPayload | SummaryJobPayload
+
+export interface ManagedTranscriptionRuntime {
+  stopIfIdle(): Promise<void>
+}
 
 export class DurableProcessingController implements ProcessingController {
   private readonly abortControllers = new Map<string, AbortController>()
@@ -42,17 +46,18 @@ export class DurableProcessingController implements ProcessingController {
     private readonly sessions: SessionService,
     private readonly secrets: { get(reference: string): Promise<string | undefined> },
     private readonly ffmpeg: FfmpegService,
-    private readonly providers: ProviderRegistry
+    private readonly providers: ProviderRegistry,
+    private readonly managedTranscriptionRuntime?: ManagedTranscriptionRuntime
   ) {}
 
   async enqueue(input: {
     sessionId: string
     transcriptionProfileId: string
-    summaryProfileId: string
+    summaryProfileId: string | null
     mode: SessionMode
   }): Promise<Job> {
     this.requireTranscriptionProfile(input.transcriptionProfileId)
-    this.requireSummaryProfile(input.summaryProfileId)
+    if (input.summaryProfileId !== null) this.requireSummaryProfile(input.summaryProfileId)
     const job = this.sessions.createJob(input.sessionId, 'probe', {
       kind: 'full',
       transcriptionProfileId: input.transcriptionProfileId,
@@ -269,7 +274,9 @@ export class DurableProcessingController implements ProcessingController {
 
     const transcriptionProfile = this.requireTranscriptionProfile(payload.transcriptionProfileId)
     const reusableTranscript =
-      job.stage === 'summarize' ? this.database.getTranscript(sessionId) : null
+      job.stage === 'summarize' || payload.summaryProfileId === null
+        ? this.database.getTranscript(sessionId)
+        : null
     const savedTranscript =
       reusableTranscript?.sourceSha256 === sourceSha256 &&
       reusableTranscript.provenance.providerKind === transcriptionProfile.kind &&
@@ -285,11 +292,14 @@ export class DurableProcessingController implements ProcessingController {
             signal
           )
 
+    if (payload.summaryProfileId === null) return
+
     this.stage(jobId, 'summarize', 0.75)
     const summaryProfile = this.requireSummaryProfile(payload.summaryProfileId)
     const session = this.database.getSession(sessionId)
     if (!session) throw new Error('Session not found')
     if (this.hasPersistedSummaryForJob(job, savedTranscript.revision, summaryProfile)) return
+    await this.stopManagedTranscriptionBeforeLocalSummary(summaryProfile, signal)
     const summary = await this.providers.summarize(
       {
         sessionId,
@@ -320,6 +330,7 @@ export class DurableProcessingController implements ProcessingController {
     if (!transcript || !session) throw new Error('Session transcript not found')
     const profile = this.requireSummaryProfile(payload.summaryProfileId)
     if (this.hasPersistedSummaryForJob(job, transcript.revision, profile)) return
+    await this.stopManagedTranscriptionBeforeLocalSummary(profile, signal)
     const summary = await this.providers.summarize(
       {
         sessionId,
@@ -361,8 +372,17 @@ export class DurableProcessingController implements ProcessingController {
       })
     )
     throwIfCancelled(signal)
-    this.stage(jobId, 'summarize', 0.74)
+    this.stage(jobId, 'transcribe', 0.74)
     return this.sessions.saveTranscript(transcript)
+  }
+
+  private async stopManagedTranscriptionBeforeLocalSummary(
+    profile: SummaryProfileV1,
+    signal: AbortSignal
+  ): Promise<void> {
+    if (profile.kind !== 'ollama' || !this.managedTranscriptionRuntime) return
+    await this.managedTranscriptionRuntime.stopIfIdle()
+    throwIfCancelled(signal)
   }
 
   private hasPersistedSummaryForJob(

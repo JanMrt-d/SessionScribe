@@ -29,9 +29,10 @@ describe('recovered recording handoff', () => {
     const session = await sessions.create('Recovered meeting', 'meeting')
     const recordingPath = artifacts.pathFor(session.id, 'recording.mkv')
     await writeFile(recordingPath, 'recovered recording')
+    const transcriptionProfileId = randomUUID()
     database.setSetting(`capture-processing:${session.id}`, {
-      transcriptionProfileId: randomUUID(),
-      summaryProfileId: randomUUID(),
+      transcriptionProfileId,
+      summaryProfileId: null,
       mode: 'meeting'
     })
     const enqueue = vi.fn(async () => sessions.createJob(session.id, 'probe', { kind: 'full' }))
@@ -43,6 +44,12 @@ describe('recovered recording handoff', () => {
     const repeatedHandoff = await handler.handle(recovery)
 
     expect(enqueue).toHaveBeenCalledTimes(1)
+    expect(enqueue).toHaveBeenCalledWith({
+      sessionId: session.id,
+      transcriptionProfileId,
+      summaryProfileId: null,
+      mode: 'meeting'
+    })
     expect(firstHandoff).toMatchObject({ acknowledgeManifest: true })
     expect(repeatedHandoff).toMatchObject({ acknowledgeManifest: true, job: null })
     expect(database.getRecordingPath(session.id)).toBe(recordingPath)
