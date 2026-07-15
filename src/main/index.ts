@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { app, BrowserWindow, dialog, net, protocol, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, protocol, session, shell } from 'electron'
 import { AppDatabase } from './persistence/Database'
 import { ArtifactStore } from './artifacts/ArtifactStore'
 import { SecretStore } from './security/SecretStore'
@@ -10,6 +10,7 @@ import { ExportService } from './exports/ExportService'
 import { IpcRouter } from './ipc/IpcRouter'
 import { DurableProcessingController } from './pipeline/ProcessingController'
 import { FfmpegService } from './media/FfmpegService'
+import { mediaFileResponse } from './media/MediaFileServer'
 import { createDefaultProviderRegistry } from './providers/index'
 import { logger } from './logging/logger'
 import { FfprobeArtifactProbe, ObsCaptureService, type LoggerLike } from './obs/index'
@@ -207,10 +208,9 @@ function registerMediaProtocol(
     if (!recordingPath) return new Response('Not found', { status: 404 })
     try {
       const safePath = artifacts.assertSessionPath(sessionId, recordingPath)
-      return await net.fetch(pathToFileURL(safePath).toString(), {
-        headers: request.headers,
-        bypassCustomProtocolHandlers: true
-      })
+      // Served manually with Range support: net.fetch ignores Range headers on
+      // file:// URLs, and without 206 responses <video> cannot seek forward.
+      return await mediaFileResponse(safePath, request.headers.get('range'))
     } catch {
       return new Response('Forbidden', { status: 403 })
     }
