@@ -587,7 +587,9 @@ export class ManagedWhisperService {
       )
     }
 
-    const mount = `type=bind,source=${this.modelDirectory},target=/models,readonly`
+    // The ro,z volume option relabels the models directory for SELinux hosts
+    // (a plain read-only bind mount is rejected with EACCES there); it is a
+    // no-op on systems without SELinux.
     const args = [
       'container',
       'create',
@@ -604,8 +606,8 @@ export class ManagedWhisperService {
       '--network',
       'bridge',
       '--read-only',
-      '--mount',
-      mount,
+      '--volume',
+      `${this.modelDirectory}:/models:ro,z`,
       '--tmpfs',
       '/tmp:rw,nosuid,nodev,noexec,size=512m',
       '--tmpfs',
