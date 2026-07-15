@@ -58,6 +58,7 @@ export function jobStageLabel(stage: Job['stage']): string {
     'playback-proxy': 'Prepare playback',
     'extract-audio': 'Extract audio',
     transcribe: 'Transcribe',
+    diarize: 'Identify speakers',
     summarize: 'Create summary',
     export: 'Export'
   }

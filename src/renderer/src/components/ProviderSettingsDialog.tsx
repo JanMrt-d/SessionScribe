@@ -15,8 +15,10 @@ import {
 } from 'lucide-react'
 import type { ProviderInput } from '@shared/ipc'
 import type { ProviderProfileV1 } from '@shared/providers'
+import type { ManagedDiarizationStatus } from '@shared/diarization'
 import type { ManagedWhisperStatus } from '@shared/whisper'
 import { Button, IconButton, InlineNotice, Modal, SelectField } from './ui'
+import { DiarizationStatusCard, type DiarizationAction } from './DiarizationStatusCard'
 import { WhisperStatusCard, type WhisperAction } from './WhisperStatusCard'
 
 type ProviderKind = ProviderProfileV1['kind']
@@ -59,6 +61,8 @@ interface ProviderSettingsDialogProps {
   encryptionAvailable: boolean
   whisperStatus: ManagedWhisperStatus | null
   whisperAction: WhisperAction
+  diarizationStatus: ManagedDiarizationStatus | null
+  diarizationAction: DiarizationAction
   onOpenChange(open: boolean): void
   onChooseExecutable(): Promise<string | null>
   onSave(input: ProviderInput): Promise<ProviderProfileV1>
@@ -68,6 +72,10 @@ interface ProviderSettingsDialogProps {
   onCancelWhisperInstall(): Promise<void>
   onStartWhisper(): Promise<void>
   onStopWhisper(): Promise<void>
+  onInstallDiarization(): Promise<void>
+  onCancelDiarizationInstall(): Promise<void>
+  onStartDiarization(): Promise<void>
+  onStopDiarization(): Promise<void>
 }
 
 export function ProviderSettingsDialog({
@@ -76,6 +84,8 @@ export function ProviderSettingsDialog({
   encryptionAvailable,
   whisperStatus,
   whisperAction,
+  diarizationStatus,
+  diarizationAction,
   onOpenChange,
   onChooseExecutable,
   onSave,
@@ -84,7 +94,11 @@ export function ProviderSettingsDialog({
   onInstallWhisper,
   onCancelWhisperInstall,
   onStartWhisper,
-  onStopWhisper
+  onStopWhisper,
+  onInstallDiarization,
+  onCancelDiarizationInstall,
+  onStartDiarization,
+  onStopDiarization
 }: ProviderSettingsDialogProps): React.JSX.Element {
   // `undefined` means the asynchronously loaded profile list has not been
   // initialized yet; `null` deliberately represents the new-profile editor.
@@ -243,6 +257,15 @@ export function ProviderSettingsDialog({
             onCancelInstall={onCancelWhisperInstall}
             onStart={onStartWhisper}
             onStop={onStopWhisper}
+          />
+
+          <DiarizationStatusCard
+            status={diarizationStatus}
+            action={diarizationAction}
+            onInstall={onInstallDiarization}
+            onCancelInstall={onCancelDiarizationInstall}
+            onStart={onStartDiarization}
+            onStop={onStopDiarization}
           />
 
           {!encryptionAvailable ? (

@@ -20,7 +20,7 @@ Renderer -> typed preload -> validated IPC -> application services
 A recording or import creates a session and an isolated artifact directory. The persistent pipeline advances through:
 
 ```text
-probe -> playback-proxy -> extract-audio -> transcribe -> [summarize] -> ready
+probe -> playback-proxy -> extract-audio -> transcribe -> [diarize] -> [summarize] -> ready
 ```
 
 Jobs record stage, progress, attempt, and a user-safe error. Local stages are idempotent. Restarted `running` jobs return to `queued`; because compatible provider APIs do not share an idempotency contract, a request interrupted before its result is persisted may be repeated after restart. Cancellation uses `AbortController` and terminates subprocesses.
@@ -34,6 +34,8 @@ The active-recording manifest is acknowledged only after media has a durable dat
 Transcription and summary adapters expose capabilities, accept arbitrary model strings, and return canonical documents. A built-in adapter consists of its profile schema, adapter class, registry entry, and conformance fixtures. Runtime JavaScript plugins are intentionally excluded; unsupported local engines can use the CLI adapter, and HTTP engines can use OpenAI-compatible or Ollama endpoints.
 
 The managed Whisper adapter leases a singleton main-process Docker service. The first lease starts the pinned Vulkan container and waits for model readiness; the last lease starts the idle-stop timer. Renderer calls expose only typed lifecycle actions and status, never Docker arguments, model paths, ports, or the Docker socket. Transcript-only jobs skip the optional summary stage, and a local Ollama summary forces an idle Whisper container to stop before inference so both models do not compete for VRAM.
+
+Managed diarization follows the same singleton lifecycle for meeting sessions. Its ROCm container is built locally from an embedded, digest- and version-pinned Dockerfile because no upstream image exists; the pyannote community-1 weights are downloaded separately with pinned SHA-256 hashes and mounted read-only. The pipeline feeds the container raw PCM over loopback HTTP after transcription and merges the returned speaker segments into the transcript by maximum word overlap, splitting utterances at speaker turns. Diarization is skipped when the runtime is not installed, and a diarization failure degrades to a transcript warning instead of failing the job; cancellation still propagates. Whisper (~4 GB) and diarization (~2 GB) may hold VRAM concurrently.
 
 Meeting summaries contain grounded topics, decisions, action items, explicit-assignment metadata, open questions, and risks. Lecture summaries contain a grounded outline, concepts, examples, review questions, and key lessons. Evidence always points to existing transcript utterances.
 

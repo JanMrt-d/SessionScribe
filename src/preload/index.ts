@@ -12,6 +12,7 @@ import type { AudioDevice, CaptureStatus, CaptureTarget, PreflightResult } from 
 import type { ProviderProfileV1 } from '@shared/providers'
 import type { SummaryDocumentV1 } from '@shared/summary'
 import type { TranscriptDocumentV1 } from '@shared/transcript'
+import type { ManagedDiarizationStatus } from '@shared/diarization'
 import type { ManagedWhisperStatus } from '@shared/whisper'
 
 const invoke = <T>(method: string, input?: unknown): Promise<T> =>
@@ -56,6 +57,13 @@ const api: SessionScribeApi = {
     cancelInstall: () => invoke<void>('whisper.cancelInstall'),
     start: () => invoke<ManagedWhisperStatus>('whisper.start'),
     stop: () => invoke<ManagedWhisperStatus>('whisper.stop')
+  },
+  diarization: {
+    status: () => invoke<ManagedDiarizationStatus>('diarization.status'),
+    install: () => invoke<ManagedDiarizationStatus>('diarization.install'),
+    cancelInstall: () => invoke<void>('diarization.cancelInstall'),
+    start: () => invoke<ManagedDiarizationStatus>('diarization.start'),
+    stop: () => invoke<ManagedDiarizationStatus>('diarization.stop')
   },
   jobs: {
     retry: (id) => invoke<Job>('jobs.retry', id),

@@ -1,9 +1,11 @@
+import { readFile, rm } from 'node:fs/promises'
 import { extname } from 'node:path'
 import type {
   Job,
   ProviderProfileV1,
   SessionMode,
   SummaryProfileV1,
+  TranscriptDocumentV1,
   TranscriptionProfileV1
 } from '@shared/index'
 import { ProviderError, type ProviderContext, type ProviderRegistry } from '../providers/index'
@@ -12,8 +14,11 @@ import type { AppDatabase } from '../persistence/Database'
 import type { ArtifactStore } from '../artifacts/ArtifactStore'
 import type { SessionService } from '../sessions/SessionService'
 import type { FfmpegService } from '../media/FfmpegService'
+import { mergeDiarization } from '../diarization/merge'
 import { providerSecretReference } from '../settings/ProviderProfileService'
 import { logger } from '../logging/logger'
+
+const DIARIZATION_SAMPLE_RATE = 16_000
 
 type FullJobPayload = {
   kind: 'full'
@@ -34,6 +39,14 @@ export interface ManagedTranscriptionRuntime {
   stopIfIdle(): Promise<void>
 }
 
+export interface ManagedDiarizationRuntime {
+  status(signal?: AbortSignal): Promise<{ installed: boolean }>
+  diarize(
+    pcm: Buffer,
+    options: { sampleRate: number; signal?: AbortSignal }
+  ): Promise<Array<{ startMs: number; endMs: number; speaker: string }>>
+}
+
 export class DurableProcessingController implements ProcessingController {
   private readonly abortControllers = new Map<string, AbortController>()
   private readonly listeners = new Set<(job: Job) => void>()
@@ -47,7 +60,8 @@ export class DurableProcessingController implements ProcessingController {
     private readonly secrets: { get(reference: string): Promise<string | undefined> },
     private readonly ffmpeg: FfmpegService,
     private readonly providers: ProviderRegistry,
-    private readonly managedTranscriptionRuntime?: ManagedTranscriptionRuntime
+    private readonly managedTranscriptionRuntime?: ManagedTranscriptionRuntime,
+    private readonly managedDiarizationRuntime?: ManagedDiarizationRuntime
   ) {}
 
   async enqueue(input: {
@@ -289,6 +303,7 @@ export class DurableProcessingController implements ProcessingController {
             audioPath,
             probe.durationMs,
             transcriptionProfile,
+            payload.mode,
             signal
           )
 
@@ -355,6 +370,7 @@ export class DurableProcessingController implements ProcessingController {
     audioPath: string,
     durationMs: number,
     profile: TranscriptionProfileV1,
+    mode: SessionMode,
     signal: AbortSignal
   ) {
     this.stage(jobId, 'transcribe', 0.3)
@@ -368,12 +384,60 @@ export class DurableProcessingController implements ProcessingController {
       },
       profile,
       this.context(signal, undefined, (progress) => {
-        this.stage(jobId, 'transcribe', 0.3 + progress * 0.42)
+        this.stage(jobId, 'transcribe', 0.3 + progress * 0.36)
       })
     )
     throwIfCancelled(signal)
-    this.stage(jobId, 'transcribe', 0.74)
-    return this.sessions.saveTranscript(transcript)
+    const diarized = await this.diarizeIfAvailable(jobId, sessionId, audioPath, transcript, mode, signal)
+    this.stage(jobId, diarized === transcript ? 'transcribe' : 'diarize', 0.74)
+    return this.sessions.saveTranscript(diarized)
+  }
+
+  /**
+   * Runs managed diarization for meeting sessions when the runtime is
+   * installed. Skips silently when unavailable; a diarization failure
+   * degrades to a transcript warning rather than failing the whole job,
+   * except for cancellation, which always propagates.
+   */
+  private async diarizeIfAvailable(
+    jobId: string,
+    sessionId: string,
+    audioPath: string,
+    transcript: TranscriptDocumentV1,
+    mode: SessionMode,
+    signal: AbortSignal
+  ): Promise<TranscriptDocumentV1> {
+    if (mode !== 'meeting' || !this.managedDiarizationRuntime) return transcript
+    const installed = await this.managedDiarizationRuntime
+      .status(signal)
+      .then((status) => status.installed)
+      .catch(() => false)
+    throwIfCancelled(signal)
+    if (!installed) return transcript
+
+    this.stage(jobId, 'diarize', 0.66)
+    try {
+      const pcmPath = this.artifacts.pathFor(sessionId, 'work', 'audio.f32le.pcm')
+      await this.ffmpeg.decodePcmFloat32(audioPath, pcmPath, DIARIZATION_SAMPLE_RATE, signal)
+      const pcm = await readFile(pcmPath)
+      const segments = await this.managedDiarizationRuntime.diarize(pcm, {
+        sampleRate: DIARIZATION_SAMPLE_RATE,
+        signal
+      })
+      await rm(pcmPath, { force: true })
+      this.stage(jobId, 'diarize', 0.72)
+      return mergeDiarization(transcript, segments)
+    } catch (error) {
+      throwIfCancelled(signal)
+      logger.warn('Diarization failed; keeping transcript without speakers', {
+        jobId,
+        error: error instanceof Error ? error.message : 'unknown'
+      })
+      return {
+        ...transcript,
+        warnings: [...transcript.warnings, 'Speaker identification failed for this session.']
+      }
+    }
   }
 
   private async stopManagedTranscriptionBeforeLocalSummary(

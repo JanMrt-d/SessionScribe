@@ -17,6 +17,7 @@ const STAGES: Job['stage'][] = [
   'playback-proxy',
   'extract-audio',
   'transcribe',
+  'diarize',
   'summarize'
 ]
 

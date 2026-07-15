@@ -163,6 +163,47 @@ export class FfmpegService {
     return outputPath
   }
 
+  /**
+   * Decodes an audio file to raw mono float32 little-endian PCM at the given
+   * sample rate, written to `outputPath` (raw, no container). Used to feed the
+   * managed diarization runtime, which accepts PCM only.
+   */
+  async decodePcmFloat32(
+    inputPath: string,
+    outputPath: string,
+    sampleRate: number,
+    signal?: AbortSignal
+  ): Promise<string> {
+    await mkdir(join(outputPath, '..'), { recursive: true })
+    await rm(outputPath, { force: true })
+    await runProcess(
+      this.ffmpegPath,
+      [
+        '-y',
+        '-v',
+        'error',
+        '-i',
+        inputPath,
+        '-map',
+        '0:a:0',
+        '-vn',
+        '-ac',
+        '1',
+        '-ar',
+        String(sampleRate),
+        '-f',
+        'f32le',
+        '-c:a',
+        'pcm_f32le',
+        outputPath
+      ],
+      { signal, timeoutMs: 4 * 60 * 60_000 }
+    )
+    const info = await stat(outputPath)
+    if (info.size === 0) throw new Error('Decoded PCM audio is empty')
+    return outputPath
+  }
+
   async sha256(inputPath: string, signal?: AbortSignal): Promise<string> {
     if (signal?.aborted) throw new DOMException('Operation cancelled', 'AbortError')
     const hash = createHash('sha256')

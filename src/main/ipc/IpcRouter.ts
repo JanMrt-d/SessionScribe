@@ -10,6 +10,7 @@ import {
   sessionModeSchema,
   summaryDocumentSchema,
   transcriptDocumentSchema,
+  type ManagedDiarizationStatus,
   type ManagedWhisperStatus,
   type ProviderProfileV1,
   type SessionScribeEvent
@@ -70,12 +71,21 @@ interface RouterDependencies {
     stop(signal?: AbortSignal): Promise<ManagedWhisperStatus>
     subscribe(listener: (status: ManagedWhisperStatus) => void): () => void
   }
+  diarization: {
+    status(signal?: AbortSignal): Promise<ManagedDiarizationStatus>
+    install(signal?: AbortSignal): Promise<ManagedDiarizationStatus>
+    cancelInstall(): void
+    start(signal?: AbortSignal): Promise<ManagedDiarizationStatus>
+    stop(signal?: AbortSignal): Promise<ManagedDiarizationStatus>
+    subscribe(listener: (status: ManagedDiarizationStatus) => void): () => void
+  }
 }
 
 export class IpcRouter {
   private unsubscribeCapture: (() => void) | null = null
   private unsubscribeProcessing: (() => void) | null = null
   private unsubscribeWhisper: (() => void) | null = null
+  private unsubscribeDiarization: (() => void) | null = null
   private readonly authorizedExportDirectories = new Set<string>()
   private readonly authorizedProviderExecutables = new Set<string>()
   private readonly captureStartProviderIds = new Set<string>()
@@ -112,6 +122,9 @@ export class IpcRouter {
     this.unsubscribeWhisper = this.dependencies.whisper.subscribe((status) => {
       this.emit({ type: 'whisper-status', payload: status })
     })
+    this.unsubscribeDiarization = this.dependencies.diarization.subscribe((status) => {
+      this.emit({ type: 'diarization-status', payload: status })
+    })
   }
 
   dispose(): void {
@@ -119,6 +132,7 @@ export class IpcRouter {
     this.unsubscribeCapture?.()
     this.unsubscribeProcessing?.()
     this.unsubscribeWhisper?.()
+    this.unsubscribeDiarization?.()
   }
 
   emit(event: SessionScribeEvent): void {
@@ -128,6 +142,7 @@ export class IpcRouter {
 
   async prepareForShutdown(): Promise<void> {
     this.dependencies.whisper.cancelInstall()
+    this.dependencies.diarization.cancelInstall()
     await this.ipcOperations.blockAndWait()
   }
 
@@ -438,6 +453,22 @@ export class IpcRouter {
       case 'whisper.stop':
         noInputSchema.parse(input)
         return await services.whisper.stop()
+      case 'diarization.status':
+        noInputSchema.parse(input)
+        return await services.diarization.status()
+      case 'diarization.install':
+        noInputSchema.parse(input)
+        return await services.diarization.install()
+      case 'diarization.cancelInstall':
+        noInputSchema.parse(input)
+        services.diarization.cancelInstall()
+        return undefined
+      case 'diarization.start':
+        noInputSchema.parse(input)
+        return await services.diarization.start()
+      case 'diarization.stop':
+        noInputSchema.parse(input)
+        return await services.diarization.stop()
       case 'jobs.retry': {
         const job = await services.processing.retry(idSchema.parse(input))
         this.emit({ type: 'job-updated', payload: job })

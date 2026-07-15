@@ -85,6 +85,10 @@
       {
         "from": "resources/bin",
         "to": "bin"
+      },
+      {
+        "from": "resources/diarization",
+        "to": "diarization"
       }
     ],
     "artifactName": "SessionScribe-${version}-${arch}.${ext}",

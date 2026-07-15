@@ -2,6 +2,7 @@ import type { AppBootstrap, Job, Session, SessionMode } from './domain'
 import type { ProviderProfileV1 } from './providers'
 import type { SummaryDocumentV1 } from './summary'
 import type { TranscriptDocumentV1 } from './transcript'
+import type { ManagedDiarizationStatus } from './diarization'
 import type { ManagedWhisperStatus } from './whisper'
 import type {
   AudioDevice,
@@ -81,6 +82,13 @@ export interface SessionScribeApi {
     start(): Promise<ManagedWhisperStatus>
     stop(): Promise<ManagedWhisperStatus>
   }
+  diarization: {
+    status(): Promise<ManagedDiarizationStatus>
+    install(): Promise<ManagedDiarizationStatus>
+    cancelInstall(): Promise<void>
+    start(): Promise<ManagedDiarizationStatus>
+    stop(): Promise<ManagedDiarizationStatus>
+  }
   jobs: {
     retry(id: string): Promise<Job>
     cancel(id: string): Promise<void>
@@ -119,6 +127,7 @@ export type SessionScribeEvent =
   | { type: 'job-updated'; payload: Job }
   | { type: 'session-updated'; payload: Session }
   | { type: 'whisper-status'; payload: ManagedWhisperStatus }
+  | { type: 'diarization-status'; payload: ManagedDiarizationStatus }
 
 export const IPC = {
   invoke: 'sessionscribe:invoke',

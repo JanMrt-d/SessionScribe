@@ -18,6 +18,7 @@ import { LaunchableObsCaptureController } from './capture/LaunchableObsCaptureCo
 import { RecoveredRecordingHandler } from './capture/RecoveredRecordingHandler'
 import type { CaptureController, ProcessingController } from './app/contracts'
 import { isTrustedRendererLocation } from './security/rendererNavigation'
+import { ManagedDiarizationService } from './diarization'
 import { ManagedWhisperService } from './whisper'
 import packageMetadata from '../../package.json'
 
@@ -35,6 +36,7 @@ let captureController: CaptureController | null = null
 let processingController: ProcessingController | null = null
 let sessionService: SessionService | null = null
 let whisperService: ManagedWhisperService | null = null
+let diarizationService: ManagedDiarizationService | null = null
 let quitPreparing = false
 let quitFinalized = false
 
@@ -73,6 +75,13 @@ async function startApplication(): Promise<void> {
   await profiles.initializeDefaults()
   const whisper = new ManagedWhisperService({ dataDirectory: userData })
   whisperService = whisper
+  const diarization = new ManagedDiarizationService({
+    dataDirectory: userData,
+    buildContextDirectory: app.isPackaged
+      ? join(process.resourcesPath, 'diarization')
+      : join(app.getAppPath(), 'resources', 'diarization')
+  })
+  diarizationService = diarization
   const sessions = new SessionService(database, artifacts)
   sessionService = sessions
   const exports = new ExportService(database)
@@ -99,7 +108,8 @@ async function startApplication(): Promise<void> {
     secrets,
     ffmpeg,
     createDefaultProviderRegistry(whisper),
-    whisper
+    whisper,
+    diarization
   )
   processingController = processing
   const recoveredRecordings = new RecoveredRecordingHandler(database, sessions, processing)
@@ -144,7 +154,8 @@ async function startApplication(): Promise<void> {
     secrets,
     capture,
     processing,
-    whisper
+    whisper,
+    diarization
   })
   router.register()
   processing.resumePending()
@@ -274,6 +285,7 @@ async function prepareToQuit(): Promise<void> {
     }
     await processingController?.shutdown()
     await whisperService?.shutdown()
+    await diarizationService?.shutdown()
     finalizeQuit()
   } catch (error) {
     dialog.showErrorBox(

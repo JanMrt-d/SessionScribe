@@ -4,6 +4,7 @@ import type { AppBootstrap, Job, Session } from '@shared/domain'
 import type { CaptureStatus } from '@shared/capture'
 import type { ProviderInput, SessionDetails } from '@shared/ipc'
 import type { ProviderProfileV1 } from '@shared/providers'
+import type { ManagedDiarizationStatus } from '@shared/diarization'
 import type { ManagedWhisperStatus } from '@shared/whisper'
 import { Button, EmptyState, IconButton, InlineNotice } from './components/ui'
 import { ExportDialog } from './components/ExportDialog'
@@ -12,6 +13,7 @@ import { ObsConnectionDialog } from './components/CaptureWorkspace'
 import { ProviderSettingsDialog } from './components/ProviderSettingsDialog'
 import { SessionSidebar } from './components/SessionSidebar'
 import { SessionWorkspace } from './components/SessionWorkspace'
+import type { DiarizationAction } from './components/DiarizationStatusCard'
 import type { WhisperAction } from './components/WhisperStatusCard'
 
 const DISCONNECTED_CAPTURE: CaptureStatus = {
@@ -35,6 +37,8 @@ export function App(): React.JSX.Element {
   const [profiles, setProfiles] = useState<ProviderProfileV1[]>([])
   const [whisperStatus, setWhisperStatus] = useState<ManagedWhisperStatus | null>(null)
   const [whisperAction, setWhisperAction] = useState<WhisperAction>(null)
+  const [diarizationStatus, setDiarizationStatus] = useState<ManagedDiarizationStatus | null>(null)
+  const [diarizationAction, setDiarizationAction] = useState<DiarizationAction>(null)
   const [captureStatus, setCaptureStatus] = useState<CaptureStatus>(DISCONNECTED_CAPTURE)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -57,16 +61,19 @@ export function App(): React.JSX.Element {
       const appBootstrap = await api.app.bootstrap()
       setBootstrap(appBootstrap)
       setSessions(appBootstrap.sessions)
-      const [providerProfiles, status, managedWhisperStatus] = await Promise.all([
-        api.providers.list(),
-        api.capture
-          .status()
-          .catch(() => ({ ...DISCONNECTED_CAPTURE, connected: appBootstrap.obsConnected })),
-        api.whisper.status().catch((cause: unknown) => whisperStatusError(cause))
-      ])
+      const [providerProfiles, status, managedWhisperStatus, managedDiarizationStatus] =
+        await Promise.all([
+          api.providers.list(),
+          api.capture
+            .status()
+            .catch(() => ({ ...DISCONNECTED_CAPTURE, connected: appBootstrap.obsConnected })),
+          api.whisper.status().catch((cause: unknown) => whisperStatusError(cause)),
+          api.diarization.status().catch(() => null)
+        ])
       setProfiles(providerProfiles)
       setCaptureStatus(status)
       setWhisperStatus(managedWhisperStatus)
+      setDiarizationStatus(managedDiarizationStatus)
       setSelectedId(
         (current) => current ?? appBootstrap.activeSessionId ?? appBootstrap.sessions[0]?.id ?? null
       )
@@ -110,6 +117,10 @@ export function App(): React.JSX.Element {
       }
       if (event.type === 'whisper-status') {
         setWhisperStatus(event.payload)
+        return
+      }
+      if (event.type === 'diarization-status') {
+        setDiarizationStatus(event.payload)
         return
       }
       if (event.type === 'session-updated') {
@@ -245,6 +256,58 @@ export function App(): React.JSX.Element {
       setNotice(errorMessage(cause, 'Whisper could not be stopped.'))
     } finally {
       setWhisperAction((current) => (current === 'stop' ? null : current))
+    }
+  }
+
+  async function installDiarization(): Promise<void> {
+    if (diarizationAction !== null) return
+    setDiarizationAction('install')
+    setNotice(null)
+    try {
+      setDiarizationStatus(await api.diarization.install())
+    } catch (cause) {
+      setNotice(errorMessage(cause, 'Speaker identification setup could not be completed.'))
+    } finally {
+      setDiarizationAction((current) => (current === 'install' ? null : current))
+    }
+  }
+
+  async function cancelDiarizationInstall(): Promise<void> {
+    setDiarizationAction('cancel')
+    setNotice(null)
+    try {
+      await api.diarization.cancelInstall()
+      setDiarizationStatus(await api.diarization.status())
+    } catch (cause) {
+      setNotice(errorMessage(cause, 'Speaker identification setup could not be cancelled.'))
+    } finally {
+      setDiarizationAction((current) => (current === 'cancel' ? null : current))
+    }
+  }
+
+  async function startDiarization(): Promise<void> {
+    if (diarizationAction !== null) return
+    setDiarizationAction('start')
+    setNotice(null)
+    try {
+      setDiarizationStatus(await api.diarization.start())
+    } catch (cause) {
+      setNotice(errorMessage(cause, 'Speaker identification could not be started.'))
+    } finally {
+      setDiarizationAction((current) => (current === 'start' ? null : current))
+    }
+  }
+
+  async function stopDiarization(): Promise<void> {
+    if (diarizationAction !== null) return
+    setDiarizationAction('stop')
+    setNotice(null)
+    try {
+      setDiarizationStatus(await api.diarization.stop())
+    } catch (cause) {
+      setNotice(errorMessage(cause, 'Speaker identification could not be stopped.'))
+    } finally {
+      setDiarizationAction((current) => (current === 'stop' ? null : current))
     }
   }
 
@@ -455,6 +518,8 @@ export function App(): React.JSX.Element {
         encryptionAvailable={bootstrap.encryptionAvailable}
         whisperStatus={whisperStatus}
         whisperAction={whisperAction}
+        diarizationStatus={diarizationStatus}
+        diarizationAction={diarizationAction}
         onOpenChange={setProviderDialogOpen}
         onChooseExecutable={() => api.providers.chooseExecutable()}
         onSave={saveProvider}
@@ -467,6 +532,10 @@ export function App(): React.JSX.Element {
         onCancelWhisperInstall={cancelWhisperInstall}
         onStartWhisper={startWhisper}
         onStopWhisper={stopWhisper}
+        onInstallDiarization={installDiarization}
+        onCancelDiarizationInstall={cancelDiarizationInstall}
+        onStartDiarization={startDiarization}
+        onStopDiarization={stopDiarization}
       />
       {details ? (
         <ExportDialog

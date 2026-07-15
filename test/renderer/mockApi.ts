@@ -7,6 +7,7 @@ import type { SessionDetails, SessionScribeApi, SessionScribeEvent } from '../..
 import type { ProviderProfileV1 } from '../../src/shared/providers'
 import type { SummaryDocumentV1 } from '../../src/shared/summary'
 import type { TranscriptDocumentV1 } from '../../src/shared/transcript'
+import type { ManagedDiarizationStatus } from '../../src/shared/diarization'
 import type { ManagedWhisperStatus } from '../../src/shared/whisper'
 
 export const SESSION_ID = '11111111-1111-4111-8111-111111111111'
@@ -149,6 +150,18 @@ export const whisperStatusFixture: ManagedWhisperStatus = {
   installed: false,
   progress: null,
   activeTranscriptions: 0,
+  idleStopAt: null,
+  canInstall: true,
+  canStart: false,
+  canStop: false
+}
+
+export const diarizationStatusFixture: ManagedDiarizationStatus = {
+  phase: 'not-installed',
+  message: 'Speaker identification is ready to be installed.',
+  installed: false,
+  progress: null,
+  activeJobs: 0,
   idleStopAt: null,
   canInstall: true,
   canStart: false,
@@ -334,6 +347,34 @@ export function createMockApi(detailsOverrides: Partial<SessionDetails> = {}): M
         ...whisperStatusFixture,
         phase: 'stopped',
         message: 'Whisper is stopped.',
+        installed: true,
+        canInstall: false,
+        canStart: true
+      }))
+    },
+    diarization: {
+      status: vi.fn(async () => diarizationStatusFixture),
+      install: vi.fn(async (): Promise<ManagedDiarizationStatus> => ({
+        ...diarizationStatusFixture,
+        phase: 'stopped',
+        message: 'Diarization is installed and stopped.',
+        installed: true,
+        canInstall: false,
+        canStart: true
+      })),
+      cancelInstall: vi.fn(async () => undefined),
+      start: vi.fn(async (): Promise<ManagedDiarizationStatus> => ({
+        ...diarizationStatusFixture,
+        phase: 'ready',
+        message: 'Diarization is ready.',
+        installed: true,
+        canInstall: false,
+        canStop: true
+      })),
+      stop: vi.fn(async (): Promise<ManagedDiarizationStatus> => ({
+        ...diarizationStatusFixture,
+        phase: 'stopped',
+        message: 'Diarization is stopped.',
         installed: true,
         canInstall: false,
         canStart: true

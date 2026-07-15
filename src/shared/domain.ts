@@ -21,6 +21,7 @@ export const jobStageSchema = z.enum([
   'playback-proxy',
   'extract-audio',
   'transcribe',
+  'diarize',
   'summarize',
   'export'
 ])
