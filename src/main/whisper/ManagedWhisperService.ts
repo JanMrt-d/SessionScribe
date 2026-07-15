@@ -412,6 +412,7 @@ export class ManagedWhisperService {
     const container = await this.inspectContainer(signal)
     if (!container) {
       this.endpoint = null
+      this.cancelIdleStop()
       this.updateStatus({
         phase: 'not-installed',
         message: 'Whisper is ready to be installed.',
@@ -865,6 +866,11 @@ export class ManagedWhisperService {
   }
 
   private async stopAfterFailedStart(): Promise<void> {
+    // A failed start must never leave a stale endpoint or idle-stop timer behind:
+    // acquire() and scheduleIdleStop() treat a non-null endpoint as a running
+    // container, so clear both before the best-effort container stop below.
+    this.endpoint = null
+    this.cancelIdleStop()
     if (!this.dockerExecutable) return
     const signal = new AbortController().signal
     const container = await this.inspectContainer(signal)
@@ -874,7 +880,6 @@ export class ManagedWhisperService {
       signal,
       DOCKER_COMMAND_TIMEOUT_MS
     )
-    this.endpoint = null
   }
 
   private scheduleIdleStop(): void {

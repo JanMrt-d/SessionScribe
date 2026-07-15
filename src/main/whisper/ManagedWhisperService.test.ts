@@ -275,6 +275,48 @@ describe('ManagedWhisperService lifecycle', () => {
     })
   })
 
+  it('clears the stale endpoint and idle timer when a failed start finds no container', async () => {
+    const runner = new FakeDockerRunner()
+    const scheduler = new FakeScheduler()
+    const service = await createService({ runner, scheduler })
+    await service.install()
+    await service.start()
+    expect(runner.container?.running).toBe(true)
+
+    const emitted: ManagedWhisperStatus[] = []
+    service.subscribe((status) => emitted.push(status))
+
+    runner.container = null // removed outside the app
+    await expect(service.acquire()).rejects.toMatchObject({ code: 'NOT_INSTALLED' })
+
+    expect(() => scheduler.fireLatest()).toThrow('No timer was scheduled')
+    expect(emitted.at(-1)).toMatchObject({ phase: 'not-installed', idleStopAt: null })
+  })
+
+  it('recovers with a clean retry after a start that never became healthy', async () => {
+    const runner = new FakeDockerRunner()
+    let time = 0
+    let healthy = false
+    const service = await createService({
+      runner,
+      readinessTimeoutMs: 500,
+      now: () => new Date(time),
+      wait: async (_milliseconds, signal) => {
+        if (signal.aborted) throw signal.reason
+        time += 251
+      },
+      healthCheck: async () => healthy
+    })
+    await service.install()
+
+    await expect(service.start()).rejects.toMatchObject({ code: 'START_FAILED' })
+    expect(runner.container?.running).toBe(false)
+
+    healthy = true
+    await expect(service.start()).resolves.toMatchObject({ phase: 'ready', installed: true })
+    expect(runner.container?.running).toBe(true)
+  })
+
   it('stops a running container to free VRAM even when GPU access is gone', async () => {
     const runner = new FakeDockerRunner()
     let gpuAvailable = true
