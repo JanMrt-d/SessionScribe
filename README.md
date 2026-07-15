@@ -9,6 +9,7 @@ SessionScribe is a local-first Windows and Linux desktop application that record
 - Imports existing audio and video when recording is not needed.
 - Uses separate, reusable profiles for transcription and summarization.
 - Includes managed local Whisper Large-v3 on Linux/Vulkan, ElevenLabs Scribe, OpenAI-compatible transcription, a local transcription CLI, OpenAI-compatible summaries, and Ollama summaries.
+- Identifies who spoke when in meetings through managed local speaker diarization (pyannote community-1) on Linux/ROCm, feeding per-person action items in meeting summaries.
 - Supports transcript-only sessions; summaries can be generated later when desired.
 - Keeps model IDs and compatible endpoint URLs editable instead of enforcing a provider catalog.
 - Preserves transcript and summary revisions, including speaker rename/merge and manual edits.
@@ -21,7 +22,7 @@ SessionScribe is a local-first Windows and Linux desktop application that record
 - FFmpeg and FFprobe on `PATH` for development. Release packages include platform binaries.
 - For AI processing, either managed Whisper, a user-managed local CLI/Ollama service, or an API key entered in the application for a cloud provider.
 
-Managed Whisper additionally requires Linux x64, a Vulkan-capable GPU exposed through `/dev/dri`, and a running Docker daemon that the desktop user can access. SessionScribe never requests administrator privileges. Rootless Docker is preferred; membership in the traditional `docker` group grants root-equivalent control and takes effect only after signing out and back in.
+Managed Whisper additionally requires Linux x64, a Vulkan-capable GPU exposed through `/dev/dri`, and a running Docker daemon that the desktop user can access. Managed speaker identification additionally requires an AMD GPU with ROCm compute access through `/dev/kfd`. SessionScribe never requests administrator privileges. Rootless Docker is preferred; membership in the traditional `docker` group grants root-equivalent control and takes effect only after signing out and back in.
 
 On Linux Wayland, OBS opens the system capture portal. SessionScribe cannot and does not bypass that consent dialog. Linux system audio uses the selected output device rather than per-application isolation.
 
@@ -263,7 +264,23 @@ Reopen SessionScribe and select **Set up Whisper**. Verified model files are reu
 | **Stop Whisper** is disabled                           | A transcription lease is active. Cancel or let the processing job finish, then stop the service. This guard prevents a partial transcript.                                                                                                                                       |
 | VRAM is still in use after transcription               | Watch the five-minute countdown or click **Stop Whisper**. After an abnormal termination, use the emergency stop above and confirm the container is no longer running with `docker ps`.                                                                                          |
 | Language detection is poor                             | Set the managed profile's language to a specific code such as `en` or `de`, then retry transcription.                                                                                                                                                                            |
-| Speakers are not separated                             | This backend provides timestamped segments but no diarization. Use a transcription provider with diarization when speaker identity is required.                                                                                                                                  |
+| Speakers are not separated                             | This backend provides timestamped segments but no diarization. Set up managed speaker identification (below) for meeting sessions, or use a transcription provider with diarization.                                                                                             |
+
+## Managed Speaker Identification (Diarization)
+
+SessionScribe can identify who spoke when in meeting sessions using [pyannote `speaker-diarization-community-1`](https://huggingface.co/pyannote/speaker-diarization-community-1) (CC BY 4.0) running locally on an AMD GPU through ROCm. With managed Whisper this yields a fully local meeting pipeline: transcription, speaker labels on words and utterances, and meeting summaries whose action items carry per-person assignees. The existing speaker rename and merge tools apply to the detected `SPEAKER_nn` labels.
+
+### Requirements and setup
+
+Diarization requires Linux x64, an AMD GPU with ROCm support exposed through `/dev/kfd` and `/dev/dri`, and the same Docker access as managed Whisper. Set it up in **Settings → Speaker identification**. Installation builds a container image locally from an embedded, digest-pinned Dockerfile (based on AMD's official ROCm PyTorch image — a large one-time download; roughly 50 GB on disk) and downloads the pinned model weights (~33 MB) with SHA-256 verification. No Hugging Face account or token is required.
+
+### Behavior
+
+- Diarization runs automatically as a pipeline stage after transcription for **meeting** sessions whenever the runtime is installed. Lecture sessions and imports processed as lectures skip it.
+- Speaker segments are merged into the transcript by maximum word overlap; utterances are split where the speaker changes, so a turn boundary is always an utterance boundary.
+- A diarization failure adds a transcript warning and the session still completes; cancellation behaves like every other stage.
+- The container binds to loopback only, mounts models read-only, drops all capabilities, and runs as an unprivileged user. Like Whisper, it holds VRAM (~2 GB) only while running and stops after five minutes of inactivity. Both runtimes fit a 16 GB GPU concurrently.
+- The container is named `sessionscribe-diarization-v1` and carries the same ownership label scheme as managed Whisper; the `docker` commands in the Whisper operations section apply with that name.
 
 ## Data Layout
 

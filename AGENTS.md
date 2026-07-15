@@ -13,7 +13,7 @@
 
 ## Boundaries
 
-- `src/main` owns the filesystem, database, subprocesses, OBS, network providers, and secrets.
+- `src/main` owns the filesystem, database, subprocesses, OBS, network providers, secrets, and the managed Docker runtimes (Whisper on Vulkan, diarization on ROCm).
 - `src/preload` exposes only the typed `SessionScribeApi` contract.
 - `src/renderer` has no Node.js access and never receives credentials or unrestricted paths.
 - `src/shared` contains versioned Zod schemas and IPC types. Root owns changes to this directory.
@@ -22,4 +22,4 @@
 
 ## Verification
 
-Run type-check, lint, relevant tests, and a production build before considering a change complete. OBS tests must use the v5 protocol fake rather than mocked gateway methods. Provider tests must use local fixture servers and must not require paid credentials.
+Run type-check, lint, relevant tests, and a production build before considering a change complete. OBS tests must use the v5 protocol fake rather than mocked gateway methods. Provider tests must use local fixture servers and must not require paid credentials. Managed-runtime tests must use fake Docker runners; nothing in the test suites may require a GPU or a running Docker daemon.
