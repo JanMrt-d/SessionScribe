@@ -62,9 +62,7 @@ describe('mergeDiarization', () => {
 
   it('keeps single-speaker utterances intact with the majority speaker', () => {
     const transcript = fixture()
-    const segments: DiarizationSegment[] = [
-      { startMs: 0, endMs: 2_000, speaker: 'SPEAKER_00' }
-    ]
+    const segments: DiarizationSegment[] = [{ startMs: 0, endMs: 2_000, speaker: 'SPEAKER_00' }]
 
     const merged = mergeDiarization(transcript, segments)
 

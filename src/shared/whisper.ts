@@ -12,11 +12,7 @@ export type ManagedWhisperPhase =
   | 'error'
 
 export type ManagedWhisperInstallStep =
-  | 'checking'
-  | 'pulling-image'
-  | 'downloading-model'
-  | 'downloading-vad'
-  | 'creating-container'
+  'checking' | 'pulling-image' | 'downloading-model' | 'downloading-vad' | 'creating-container'
 
 export interface ManagedWhisperProgress {
   step: ManagedWhisperInstallStep

@@ -131,9 +131,7 @@ describe('IpcRouter managed Whisper', () => {
 
   it('accepts a missing summary profile while still requiring transcription', () => {
     const getProviderProfile = vi.fn((id: string) =>
-      id === 'transcription'
-        ? { id, task: 'transcription', kind: 'managed-whisper' }
-        : null
+      id === 'transcription' ? { id, task: 'transcription', kind: 'managed-whisper' } : null
     )
     const router = new IpcRouter({
       profiles: { list: () => [] },

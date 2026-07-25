@@ -67,7 +67,10 @@ export function mediaContentType(path: string): string {
   return MEDIA_CONTENT_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream'
 }
 
-export async function mediaFileResponse(path: string, rangeHeader: string | null): Promise<Response> {
+export async function mediaFileResponse(
+  path: string,
+  rangeHeader: string | null
+): Promise<Response> {
   const stats = await stat(path)
   const range = parseByteRange(rangeHeader, stats.size)
   if (range === 'unsatisfiable') {

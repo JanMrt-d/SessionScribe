@@ -6,7 +6,4 @@ export type OpenAiTranscriptionProfileV1 = Extract<
   { kind: 'openai-transcription' }
 >
 export type LocalCliTranscriptionProfileV1 = Extract<TranscriptionProfileV1, { kind: 'local-cli' }>
-export type ManagedWhisperProfileV1 = Extract<
-  TranscriptionProfileV1,
-  { kind: 'managed-whisper' }
->
+export type ManagedWhisperProfileV1 = Extract<TranscriptionProfileV1, { kind: 'managed-whisper' }>

@@ -119,9 +119,9 @@ describe('ManagedDiarizationService lifecycle', () => {
     const runner = new FakeDockerRunner()
     const service = await createService({ runner })
 
-    await expect(
-      service.diarize(Buffer.alloc(4), { sampleRate: 16_000 })
-    ).rejects.toMatchObject({ code: 'NOT_INSTALLED' })
+    await expect(service.diarize(Buffer.alloc(4), { sampleRate: 16_000 })).rejects.toMatchObject({
+      code: 'NOT_INSTALLED'
+    })
     expect(await service.status()).toMatchObject({ phase: 'not-installed', canInstall: true })
   })
 
@@ -151,9 +151,9 @@ describe('ManagedDiarizationService lifecycle', () => {
     service.subscribe((status) => emitted.push(status))
 
     runner.container = null // removed outside the app
-    await expect(
-      service.diarize(Buffer.alloc(4), { sampleRate: 16_000 })
-    ).rejects.toMatchObject({ code: 'NOT_INSTALLED' })
+    await expect(service.diarize(Buffer.alloc(4), { sampleRate: 16_000 })).rejects.toMatchObject({
+      code: 'NOT_INSTALLED'
+    })
 
     expect(() => scheduler.fireLatest()).toThrow('No timer was scheduled')
     expect(emitted.at(-1)).toMatchObject({ phase: 'not-installed', idleStopAt: null })
@@ -184,9 +184,9 @@ describe('ManagedDiarizationService lifecycle', () => {
     })
     await service.install()
 
-    await expect(
-      service.diarize(Buffer.alloc(4), { sampleRate: 16_000 })
-    ).rejects.toMatchObject({ code: 'REQUEST_FAILED' })
+    await expect(service.diarize(Buffer.alloc(4), { sampleRate: 16_000 })).rejects.toMatchObject({
+      code: 'REQUEST_FAILED'
+    })
   })
 })
 
@@ -319,9 +319,7 @@ function fetchWithDiarization(
       const body = init.body as Buffer
       requests.push({
         url,
-        headers: Object.fromEntries(
-          Object.entries((init.headers ?? {}) as Record<string, string>)
-        ),
+        headers: Object.fromEntries(Object.entries((init.headers ?? {}) as Record<string, string>)),
         bytes: body.length
       })
       return jsonResponse({
@@ -354,11 +352,7 @@ function jsonResponse(payload: unknown): Response {
   })
 }
 
-function asset(
-  fileName: string,
-  relativePath: string,
-  content: Buffer
-): DiarizationDownloadAsset {
+function asset(fileName: string, relativePath: string, content: Buffer): DiarizationDownloadAsset {
   return {
     fileName,
     relativePath,

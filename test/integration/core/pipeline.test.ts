@@ -98,10 +98,9 @@ describe('durable processing pipeline', () => {
   it('completes transcript-only processing and can summarize it later', async () => {
     const fixture = await pipelineFixture('Transcript only')
     const stopIfIdle = vi.fn(async () => undefined)
-    const processing = fixture.processing(
-      new DeterministicFakeTranscriptionAdapter('local-cli'),
-      { stopIfIdle }
-    )
+    const processing = fixture.processing(new DeterministicFakeTranscriptionAdapter('local-cli'), {
+      stopIfIdle
+    })
     const transcriptionJob = await processing.enqueue({
       sessionId: fixture.session.id,
       transcriptionProfileId: fixture.transcriptionProfile.id,

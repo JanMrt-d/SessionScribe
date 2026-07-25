@@ -388,7 +388,14 @@ export class DurableProcessingController implements ProcessingController {
       })
     )
     throwIfCancelled(signal)
-    const diarized = await this.diarizeIfAvailable(jobId, sessionId, audioPath, transcript, mode, signal)
+    const diarized = await this.diarizeIfAvailable(
+      jobId,
+      sessionId,
+      audioPath,
+      transcript,
+      mode,
+      signal
+    )
     this.stage(jobId, diarized === transcript ? 'transcribe' : 'diarize', 0.74)
     return this.sessions.saveTranscript(diarized)
   }

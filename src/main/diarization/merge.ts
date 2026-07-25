@@ -40,7 +40,8 @@ export function mergeDiarization(
     if (utteranceWords.length === 0) {
       utterances.push({
         ...utterance,
-        speakerId: speakerForSpan(ordered, utterance.startMs, utterance.endMs) ?? utterance.speakerId
+        speakerId:
+          speakerForSpan(ordered, utterance.startMs, utterance.endMs) ?? utterance.speakerId
       })
       continue
     }
@@ -79,7 +80,11 @@ function splitBySpeaker(
     const last = run.words.at(-1) as TranscriptWord
     return {
       id: `${utterance.id}-s${index + 1}`,
-      text: run.words.map((word) => word.text).join(' ').replace(/\s+/g, ' ').trim(),
+      text: run.words
+        .map((word) => word.text)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim(),
       startMs: first.startMs,
       endMs: last.endMs,
       speakerId: run.speakerId,

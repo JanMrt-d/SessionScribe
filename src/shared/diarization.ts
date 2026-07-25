@@ -12,10 +12,7 @@ export type ManagedDiarizationPhase =
   | 'error'
 
 export type ManagedDiarizationInstallStep =
-  | 'checking'
-  | 'building-image'
-  | 'downloading-models'
-  | 'creating-container'
+  'checking' | 'building-image' | 'downloading-models' | 'creating-container'
 
 export interface ManagedDiarizationProgress {
   step: ManagedDiarizationInstallStep

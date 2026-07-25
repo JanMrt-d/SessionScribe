@@ -262,9 +262,7 @@ function diagnosticGuidance(status: ManagedDiarizationStatus | null): React.JSX.
   }
 }
 
-function installStepLabel(
-  step: NonNullable<ManagedDiarizationStatus['progress']>['step']
-): string {
+function installStepLabel(step: NonNullable<ManagedDiarizationStatus['progress']>['step']): string {
   const labels = {
     checking: 'Checking system',
     'building-image': 'Building runtime (large download)',

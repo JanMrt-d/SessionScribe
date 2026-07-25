@@ -138,8 +138,7 @@ export class ManagedDiarizationService {
     this.healthCheck =
       options.healthCheck ?? ((origin, signal) => this.defaultHealthCheck(origin, signal))
     this.idleTimeoutMs = options.idleTimeoutMs ?? MANAGED_DIARIZATION_IDLE_TIMEOUT_MS
-    this.readinessTimeoutMs =
-      options.readinessTimeoutMs ?? MANAGED_DIARIZATION_READINESS_TIMEOUT_MS
+    this.readinessTimeoutMs = options.readinessTimeoutMs ?? MANAGED_DIARIZATION_READINESS_TIMEOUT_MS
     this.modelAssets = options.modelAssets ?? DIARIZATION_MODEL_ASSETS
     if (this.idleTimeoutMs < 0 || this.readinessTimeoutMs <= 0) {
       throw new ManagedDiarizationError(
@@ -177,16 +176,11 @@ export class ManagedDiarizationService {
     if (this.installPromise) return this.installPromise
     if (this.startPromise || this.stopPromise || this.activeJobs > 0) {
       return Promise.reject(
-        new ManagedDiarizationError(
-          'BUSY',
-          'Diarization cannot be installed while it is in use.'
-        )
+        new ManagedDiarizationError('BUSY', 'Diarization cannot be installed while it is in use.')
       )
     }
     if (this.shuttingDown) {
-      return Promise.reject(
-        new ManagedDiarizationError('BUSY', 'SessionScribe is shutting down.')
-      )
+      return Promise.reject(new ManagedDiarizationError('BUSY', 'SessionScribe is shutting down.'))
     }
 
     const controller = new AbortController()
@@ -732,9 +726,7 @@ export class ManagedDiarizationService {
       )
     }
     if (this.shuttingDown) {
-      return Promise.reject(
-        new ManagedDiarizationError('BUSY', 'SessionScribe is shutting down.')
-      )
+      return Promise.reject(new ManagedDiarizationError('BUSY', 'SessionScribe is shutting down.'))
     }
     const operation = this.performStart(signal)
       .catch(async (error: unknown) => {
@@ -852,10 +844,7 @@ export class ManagedDiarizationService {
       }
       await this.wait(READINESS_POLL_MS, signal)
     }
-    throw new ManagedDiarizationError(
-      'START_FAILED',
-      'Diarization did not finish loading in time.'
-    )
+    throw new ManagedDiarizationError('START_FAILED', 'Diarization did not finish loading in time.')
   }
 
   private async stopManagedContainer(signal: AbortSignal, force: boolean): Promise<void> {
@@ -863,11 +852,7 @@ export class ManagedDiarizationService {
     if (!force && this.activeJobs > 0) return
     const operation = this.performStop(signal)
       .catch((error: unknown) => {
-        const normalized = this.normalize(
-          error,
-          'STOP_FAILED',
-          'Diarization could not be stopped.'
-        )
+        const normalized = this.normalize(error, 'STOP_FAILED', 'Diarization could not be stopped.')
         if (normalized.code === 'STOP_FAILED') {
           this.updateStatus({
             phase: 'error',

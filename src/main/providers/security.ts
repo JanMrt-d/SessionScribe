@@ -16,10 +16,7 @@ export interface HttpCredentialOptions {
   requireApiKey?: boolean
 }
 
-type HttpProviderProfile = Exclude<
-  ProviderProfileV1,
-  { kind: 'local-cli' | 'managed-whisper' }
->
+type HttpProviderProfile = Exclude<ProviderProfileV1, { kind: 'local-cli' | 'managed-whisper' }>
 
 export function httpCredentialOptionsFor(profile: HttpProviderProfile): HttpCredentialOptions {
   switch (profile.kind) {

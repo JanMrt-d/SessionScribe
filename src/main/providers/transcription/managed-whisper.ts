@@ -15,9 +15,7 @@ export interface ManagedWhisperRuntime {
   acquire(signal?: AbortSignal): Promise<ManagedWhisperLease>
 }
 
-export class ManagedWhisperTranscriptionAdapter
-  implements TranscriptionAdapter<ManagedWhisperProfileV1>
-{
+export class ManagedWhisperTranscriptionAdapter implements TranscriptionAdapter<ManagedWhisperProfileV1> {
   readonly kind = 'managed-whisper' as const
 
   constructor(private readonly runtime: ManagedWhisperRuntime) {}
