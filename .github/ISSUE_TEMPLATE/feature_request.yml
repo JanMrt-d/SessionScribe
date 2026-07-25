@@ -1,0 +1,37 @@
+name: Feature request
+description: Suggest a capability or an improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: Describe the situation you run into, not just the feature you want.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should SessionScribe do instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Existing workarounds, other providers, or other designs.
+
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Design constraints
+      description: >
+        SessionScribe is local-first with no backend, no account, and no
+        telemetry. Provider wire formats stay behind adapters, and the renderer
+        never receives credentials or unrestricted paths.
+      options:
+        - label: This request fits those constraints, or explains why they should change.
+          required: true

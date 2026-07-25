@@ -52,6 +52,10 @@ priority; strikethrough or delete items as they land.
 ## Nice to have
 
 - [ ] Release automation: tag → CI builds → GitHub release with checksums.
+      Bump the version per release while doing it: artifacts are named only
+      `SessionScribe-0.1.0-x86_64.*`, so two builds from different commits are
+      indistinguishable except by mtime and SHA-256, which makes dogfooding a
+      stale binary easy.
 - [ ] Live transcription preview during recording.
 - [ ] Vulkan diarization (drop ROCm): revisit when ONNX Runtime's WebGPU EP
       lands in a diarization framework (tracked upstream in sherpa-onnx).

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/JanMrt-d/SessionScribe/security/advisories/new
+    about: Report privately through GitHub security advisories, never as a public issue.
+  - name: Questions and ideas
+    url: https://github.com/JanMrt-d/SessionScribe/discussions
+    about: Ask about setup, providers, or the managed local runtimes.

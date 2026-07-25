@@ -7,10 +7,26 @@
     "email": "janmertes@outlook.com"
   },
   "homepage": "https://github.com/JanMrt-d/SessionScribe",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JanMrt-d/SessionScribe.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JanMrt-d/SessionScribe/issues"
+  },
+  "keywords": [
+    "electron",
+    "obs",
+    "transcription",
+    "whisper",
+    "diarization",
+    "meeting-notes",
+    "local-first"
+  ],
   "desktopName": "SessionScribe",
   "main": "./out/main/index.js",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",

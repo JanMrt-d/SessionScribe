@@ -1,0 +1,73 @@
+name: Bug report
+description: Something in SessionScribe does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not paste transcripts, summaries, provider payloads, API keys,
+        or OBS passwords into this issue. Redact anything you would not publish.
+        Security problems go through SECURITY.md instead of a public issue.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Settings and ...
+        2. Import ...
+        3. The pipeline stops at ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: SessionScribe version
+      description: The release version, or the commit hash if you built from source.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Linux (Wayland)
+        - Linux (X11)
+        - Windows
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - OBS recording and capture
+        - Import and media playback
+        - Transcription provider
+        - Managed local Whisper
+        - Managed speaker identification (diarization)
+        - Summarization provider
+        - Transcript or summary editing and export
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: >
+        From the `logs/main.log` file in the platform userData directory.
+        Include only the lines around the failure, and redact anything sensitive.
+      render: text

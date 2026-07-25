@@ -15,6 +15,24 @@ SessionScribe is a local-first Windows and Linux desktop application that record
 - Preserves transcript and summary revisions, including speaker rename/merge and manual edits.
 - Exports Markdown, canonical JSON, SRT, and VTT.
 
+## Install
+
+Download the Linux `AppImage` or `rpm`, or the Windows `nsis` installer, from
+the [latest release](https://github.com/JanMrt-d/SessionScribe/releases/latest),
+then verify it against the published `SHA256SUMS` before running it:
+
+```bash
+sha256sum --check --ignore-missing SHA256SUMS
+chmod +x SessionScribe-*-x86_64.AppImage
+./SessionScribe-*-x86_64.AppImage
+```
+
+Builds are unsigned, so Windows will warn on first launch. SessionScribe is
+pre-1.0: the artifacts work, but expect rough edges and see
+[TODO.md](TODO.md) for what is still missing.
+
+To run from source instead, see [Development](#development).
+
 ## Prerequisites
 
 - Node.js 24 and npm for development.
@@ -297,3 +315,22 @@ Recordings, transcript revisions, and summary revisions remain until the user de
 There is no SessionScribe account, backend, telemetry, or cloud storage. Selecting a cloud profile sends the required media or transcript to that profile's configured endpoint. The active provider is always visible before processing.
 
 Provider calls are cancellable and persisted stages resume after restart. A remote request interrupted before its result is durably saved may be repeated because compatible APIs do not share an idempotency contract; that can incur another provider charge.
+
+## Contributing
+
+Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers
+the setup, the process boundaries a change is reviewed against, and the
+verification gates. [ARCHITECTURE.md](ARCHITECTURE.md) explains the durable
+pipeline, the OBS recording lifecycle, and the security invariants.
+
+Security problems go through [SECURITY.md](SECURITY.md) rather than a public
+issue.
+
+## License
+
+[MIT](LICENSE).
+
+Release packages bundle separate FFmpeg and FFprobe executables and can
+download container images and model weights at your request. Those remain
+independent programs under their own licenses — see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
