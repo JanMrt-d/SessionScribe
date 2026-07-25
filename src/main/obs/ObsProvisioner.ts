@@ -281,8 +281,12 @@ export class ObsProvisioner {
 
   async restorePreviousResources(): Promise<void> {
     await this.queue.run(async () => {
-      if ((await this.gateway.call('GetRecordStatus')).outputActive) return
+      // Nothing was ever mutated in OBS, so a disconnected gateway is not a
+      // restore failure. Reading the lease first keeps shutdown quiet instead
+      // of reporting a failure for work that never happened.
       const lease = await this.resourceLeaseStore.load()
+      if (!lease && !this.gateway.connected) return
+      if ((await this.gateway.call('GetRecordStatus')).outputActive) return
       if (!lease) {
         this.restorationLease = null
         this.resources = null

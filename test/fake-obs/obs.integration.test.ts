@@ -661,4 +661,39 @@ describe('OBS WebSocket v5 integration', () => {
     expect(server.currentSceneCollectionName).toBe('Default')
     await expect(retry.resourceLeaseStore.load()).resolves.toBeNull()
   })
+
+  it('reports a restore failure only when OBS resources were actually mutated', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sessionscribe-obs-quiet-restore-'))
+    temporaryDirectories.push(root)
+    const server = await FakeObsServer.start()
+    servers.push(server)
+    const serviceOptions = {
+      recordingsRoot: join(root, 'recordings'),
+      activeManifestPath: join(root, 'active-recording.json'),
+      resourceLeasePath: join(root, 'obs-resource-restoration.json'),
+      platform: 'x11' as const
+    }
+    const warn = vi.fn()
+    const logger = { debug: vi.fn(), info: vi.fn(), warn, error: vi.fn() }
+
+    // Quitting without ever reaching OBS leaves nothing to restore.
+    const neverConnected = new ObsCaptureService({ ...serviceOptions, logger })
+    await neverConnected.disconnect()
+    expect(warn).not.toHaveBeenCalled()
+    await expect(neverConnected.resourceLeaseStore.load()).resolves.toBeNull()
+
+    // A lease left behind by a mutated OBS still reports a failure.
+    const provisioned = new ObsCaptureService(serviceOptions)
+    await provisioned.connect({ url: server.url, password: 'sessionscribe-test' })
+    await provisioned.gateway.disconnect()
+    await expect(provisioned.resourceLeaseStore.load()).resolves.not.toBeNull()
+
+    const unrestored = new ObsCaptureService({ ...serviceOptions, logger })
+    await unrestored.disconnect()
+    expect(warn).toHaveBeenCalledWith(
+      'Failed to restore the previous OBS profile or scene collection',
+      expect.objectContaining({ error: 'OBS is not connected' })
+    )
+    await expect(unrestored.resourceLeaseStore.load()).resolves.not.toBeNull()
+  })
 })
