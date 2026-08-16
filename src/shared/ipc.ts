@@ -29,7 +29,7 @@ export interface ProviderInput {
 export interface ExportRequest {
   sessionId: string
   directory: string
-  formats: Array<'markdown' | 'json' | 'srt' | 'vtt'>
+  formats: Array<'markdown' | 'json' | 'srt' | 'vtt' | 'text'>
 }
 
 export interface SessionScribeApi {

@@ -17,7 +17,7 @@ export class ExportService {
     const stem = sanitizeFileName(session.title)
     const paths: string[] = []
     for (const format of [...new Set(request.formats)]) {
-      const extension = format === 'markdown' ? 'md' : format
+      const extension = format === 'markdown' ? 'md' : format === 'text' ? 'txt' : format
       const path = join(request.directory, `${stem}.${extension}`)
       const content = render(format, transcript, summary)
       await atomicWrite(path, content)
@@ -51,7 +51,22 @@ function render(
         .join('\n')}`
     case 'markdown':
       return markdown(transcript, summary)
+    case 'text':
+      return plainText(transcript)
   }
+}
+
+export function plainText(transcript: TranscriptDocumentV1): string {
+  const speakers = new Map(
+    transcript.speakers.map((speaker) => [speaker.id, speaker.displayName ?? speaker.label])
+  )
+  return `${transcript.utterances
+    .map((utterance) => {
+      const speaker = utterance.speakerId ? speakers.get(utterance.speakerId) : null
+      return `${speaker ? `${speaker}: ` : ''}${utterance.text.trim()}`
+    })
+    .join('\n\n')
+    .trim()}\n`
 }
 
 function markdown(transcript: TranscriptDocumentV1, summary: SummaryDocumentV1 | null): string {

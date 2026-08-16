@@ -30,6 +30,13 @@ const FORMAT_OPTIONS: Array<{
     icon: <FileText size={18} />
   },
   {
+    value: 'text',
+    label: 'Plain text',
+    description: 'Speaker-labeled transcript only, smallest file',
+    requires: 'transcript',
+    icon: <FileText size={18} />
+  },
+  {
     value: 'json',
     label: 'Structured JSON',
     description: 'Complete machine-readable session data',
