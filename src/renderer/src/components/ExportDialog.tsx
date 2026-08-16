@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, FileJson, FileText, FolderOpen, LoaderCircle, Subtitles } from 'lucide-react'
+import {
+  CheckCircle2,
+  FileDown,
+  FileJson,
+  FileText,
+  FolderOpen,
+  GraduationCap,
+  LoaderCircle,
+  Subtitles
+} from 'lucide-react'
 import type { ExportRequest } from '@shared/ipc'
 import { Button, InlineNotice, Modal } from './ui'
 
@@ -22,6 +31,20 @@ const FORMAT_OPTIONS: Array<{
   requires: 'summary' | 'transcript' | 'either'
   icon: React.ReactNode
 }> = [
+  {
+    value: 'notes',
+    label: 'Study notes (Markdown)',
+    description: 'Chapters, key points and study questions, without the transcript',
+    requires: 'summary',
+    icon: <GraduationCap size={18} />
+  },
+  {
+    value: 'pdf',
+    label: 'Study notes (PDF)',
+    description: 'The same notes, laid out for printing',
+    requires: 'summary',
+    icon: <FileDown size={18} />
+  },
   {
     value: 'markdown',
     label: 'Markdown',

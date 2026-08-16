@@ -7,6 +7,7 @@ import { SecretStore } from './security/SecretStore'
 import { ProviderProfileService } from './settings/ProviderProfileService'
 import { SessionService } from './sessions/SessionService'
 import { ExportService } from './exports/ExportService'
+import { ElectronPdfRenderer } from './exports/ElectronPdfRenderer'
 import { IpcRouter } from './ipc/IpcRouter'
 import { DurableProcessingController } from './pipeline/ProcessingController'
 import { FfmpegService } from './media/FfmpegService'
@@ -85,7 +86,7 @@ async function startApplication(): Promise<void> {
   diarizationService = diarization
   const sessions = new SessionService(database, artifacts)
   sessionService = sessions
-  const exports = new ExportService(database)
+  const exports = new ExportService(database, new ElectronPdfRenderer())
   const ffmpeg = await FfmpegService.create({ resourcesPath: process.resourcesPath })
   const obsLogger: LoggerLike = {
     debug: (message, context) => logger.debug(message, context ?? {}),

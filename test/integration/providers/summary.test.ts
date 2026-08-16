@@ -94,21 +94,41 @@ describe('summary providers', () => {
       expect(requestBody.model).toBe('local/lecture-model:latest')
       expect(requestBody.format).toBeTypeOf('object')
       expect(requestBody.options).toMatchObject({ temperature: 0 })
-      const summary = {
-        overview: 'Ownership is explicit.',
-        outline: [{ text: 'Task ownership', evidence: ['utterance-1'] }],
-        keyLessons: [{ text: 'State ownership clearly.', evidence: ['utterance-1'] }],
-        concepts: [
-          {
-            name: 'Ownership',
-            definition: 'A named person is responsible.',
-            evidence: ['utterance-1']
+      // Lecture notes are produced in two shapes: chapters per segment, then a
+      // closing overview. The requested schema says which one is due.
+      const wantsChapters = JSON.stringify(requestBody.format).includes('chapters')
+      const summary = wantsChapters
+        ? {
+            chapters: [
+              {
+                title: 'Task ownership',
+                summary: 'The lecture established who owns the release task.',
+                subtopics: [
+                  {
+                    title: 'Explicit assignment',
+                    keyPoints: [{ text: 'State ownership clearly.', evidence: ['utterance-1'] }]
+                  }
+                ],
+                emphasis: [{ text: 'Ownership must be explicit.', evidence: ['utterance-1'] }],
+                openQuestions: [],
+                glossary: [
+                  {
+                    name: 'Ownership',
+                    definition: 'A named person is responsible.',
+                    evidence: ['utterance-1']
+                  }
+                ],
+                studyQuestions: [
+                  {
+                    question: 'Who owns the release task?',
+                    answer: 'Alice owns it.',
+                    evidence: ['utterance-1']
+                  }
+                ]
+              }
+            ]
           }
-        ],
-        examples: [{ text: 'Alice owns the release task.', evidence: ['utterance-1'] }],
-        reviewQuestions: ['Who owns the release task?'],
-        recommendedReview: [{ text: 'Review explicit assignment.', evidence: ['utterance-1'] }]
-      }
+        : { overview: 'Ownership is explicit.' }
       response.setHeader('content-type', 'application/json')
       response.end(JSON.stringify({ message: { content: JSON.stringify(summary) } }))
     })
@@ -131,7 +151,14 @@ describe('summary providers', () => {
     )
     expect(receivedPath).toBe('/custom/api/chat')
     expect(result.mode).toBe('lecture')
-    if (result.mode === 'lecture') expect(result.keyLessons).toHaveLength(1)
+    if (result.mode === 'lecture') {
+      expect(result.overview).toBe('Ownership is explicit.')
+      expect(result.chapters).toHaveLength(1)
+      expect(result.chapters[0]?.subtopics[0]?.keyPoints).toHaveLength(1)
+      expect(result.chapters[0]?.studyQuestions[0]?.answer).toBe('Alice owns it.')
+      // Resolved from the cited utterance, never taken from the model.
+      expect(result.chapters[0]?.startMs).toBe(100)
+    }
   })
 
   it('rejects transcript text without evidence-addressable utterances', async () => {

@@ -47,7 +47,7 @@ const providerInputSchema = z.object({
 const exportSchema = z.object({
   sessionId: idSchema,
   directory: z.string().min(1),
-  formats: z.array(z.enum(['markdown', 'json', 'srt', 'vtt', 'text'])).min(1)
+  formats: z.array(z.enum(['markdown', 'notes', 'pdf', 'json', 'srt', 'vtt', 'text'])).min(1)
 })
 
 interface RouterDependencies {

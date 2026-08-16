@@ -4,7 +4,11 @@ import type {
   SummaryProfileV1,
   TranscriptionProfileV1
 } from '@shared/providers'
-import { summaryDocumentSchema, type SummaryDocumentV1 } from '@shared/summary'
+import {
+  LECTURE_SUMMARY_SCHEMA_VERSION,
+  summaryDocumentSchema,
+  type SummaryDocumentV1
+} from '@shared/summary'
 import { transcriptDocumentSchema, type TranscriptDocumentV1 } from '@shared/transcript'
 import type {
   ProviderContext,
@@ -145,13 +149,25 @@ export class DeterministicFakeSummaryAdapter<
           }
         : {
             ...base,
+            schemaVersion: LECTURE_SUMMARY_SCHEMA_VERSION,
             mode: 'lecture' as const,
-            outline: utterance ? [{ text: utterance.text, evidence }] : [],
-            keyLessons: [],
-            concepts: [],
-            examples: [],
-            reviewQuestions: [],
-            recommendedReview: []
+            language: request.transcript.languages[0] ?? '',
+            chapters: utterance
+              ? [
+                  {
+                    title: request.title,
+                    summary: utterance.text,
+                    startMs: utterance.startMs,
+                    subtopics: [
+                      { title: request.title, keyPoints: [{ text: utterance.text, evidence }] }
+                    ],
+                    emphasis: [],
+                    openQuestions: [],
+                    glossary: [],
+                    studyQuestions: []
+                  }
+                ]
+              : []
           }
     reportProgress(context, { stage: 'parse', progress: 1 })
     return summaryDocumentSchema.parse(result)

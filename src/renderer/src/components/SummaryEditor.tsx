@@ -4,30 +4,39 @@ import {
   BookOpenCheck,
   CalendarClock,
   CheckSquare2,
+  ChevronDown,
+  ChevronRight,
   CircleHelp,
   FileWarning,
+  GraduationCap,
   Lightbulb,
   ListChecks,
   LoaderCircle,
   Plus,
-  RefreshCw,
   Save,
   ShieldAlert,
   Sparkles,
+  Star,
   Target,
   Trash2,
   Users
 } from 'lucide-react'
 import type { SessionMode } from '@shared/domain'
 import type { ProviderProfileV1 } from '@shared/providers'
-import type { LectureSummaryV1, MeetingSummaryV1, SummaryDocumentV1 } from '@shared/summary'
+import type {
+  LectureChapter,
+  LectureStudyQuestion,
+  LectureSummaryV2,
+  MeetingSummaryV1,
+  SummaryDocumentV1
+} from '@shared/summary'
 import type { EvidenceRef } from '@shared/transcript'
 import { formatDuration, fromDateTimeLocal, toDateTimeLocal } from '../lib/format'
 import { Button, EmptyState, InlineNotice, SelectField } from './ui'
 
 type GroundedText = MeetingSummaryV1['topics'][number]
 type ActionItem = MeetingSummaryV1['actionItems'][number]
-type Concept = LectureSummaryV1['concepts'][number]
+type Concept = LectureChapter['glossary'][number]
 
 interface SummaryEditorProps {
   sessionMode: SessionMode
@@ -325,95 +334,352 @@ function MeetingFields({
   )
 }
 
+function emptyChapter(): LectureChapter {
+  return {
+    title: '',
+    summary: '',
+    startMs: 0,
+    subtopics: [],
+    emphasis: [],
+    openQuestions: [],
+    glossary: [],
+    studyQuestions: []
+  }
+}
+
 function LectureFields({
   document,
   onChange,
   onSeek
 }: {
-  document: LectureSummaryV1
-  onChange(document: LectureSummaryV1): void
+  document: LectureSummaryV2
+  onChange(document: LectureSummaryV2): void
   onSeek(milliseconds: number): void
 }): React.JSX.Element {
-  function update<K extends keyof LectureSummaryV1>(key: K, value: LectureSummaryV1[K]): void {
-    onChange({ ...document, [key]: value, manuallyEdited: true })
+  function update(chapters: LectureChapter[]): void {
+    onChange({ ...document, chapters, manuallyEdited: true })
   }
 
   return (
     <div className="summary-sections">
-      <GroundedListEditor
-        title="Outline"
-        icon={<ListChecks size={18} />}
-        items={document.outline}
-        placeholder="Lecture section"
-        onChange={(items) => update('outline', items)}
-        onSeek={onSeek}
-      />
-      <GroundedListEditor
-        title="Key lessons"
-        icon={<Lightbulb size={18} />}
-        items={document.keyLessons}
-        placeholder="Important lesson"
-        onChange={(items) => update('keyLessons', items)}
-        onSeek={onSeek}
-      />
-      <section className="summary-section" aria-labelledby="concepts-heading">
+      <section className="summary-section" aria-labelledby="chapters-heading">
         <SummarySectionHeading
-          id="concepts-heading"
+          id="chapters-heading"
           icon={<BookOpenCheck size={18} />}
-          title="Concepts"
-          count={document.concepts.length}
-          onAdd={() =>
-            update('concepts', [...document.concepts, { name: '', definition: '', evidence: [] }])
-          }
+          title="Chapters"
+          count={document.chapters.length}
+          onAdd={() => update([...document.chapters, emptyChapter()])}
         />
-        <div className="structured-list">
-          {document.concepts.map((concept, index) => (
-            <ConceptEditor
-              concept={concept}
+        <div className="chapter-list">
+          {document.chapters.map((chapter, index) => (
+            <ChapterEditor
+              chapter={chapter}
+              position={index + 1}
+              initiallyOpen={index === 0}
               onSeek={onSeek}
               onChange={(next) =>
                 update(
-                  'concepts',
-                  document.concepts.map((candidate, candidateIndex) =>
+                  document.chapters.map((candidate, candidateIndex) =>
                     candidateIndex === index ? next : candidate
                   )
                 )
               }
               onRemove={() =>
-                update(
-                  'concepts',
-                  document.concepts.filter((_, candidateIndex) => candidateIndex !== index)
-                )
+                update(document.chapters.filter((_, candidateIndex) => candidateIndex !== index))
               }
               key={index}
             />
           ))}
+          {document.chapters.length === 0 ? (
+            <p className="structured-list__empty">No chapters yet.</p>
+          ) : null}
         </div>
       </section>
-      <GroundedListEditor
-        title="Examples"
-        icon={<Sparkles size={18} />}
-        items={document.examples}
-        placeholder="Example from the lecture"
-        onChange={(items) => update('examples', items)}
-        onSeek={onSeek}
-      />
-      <StringListEditor
-        title="Review questions"
-        icon={<CircleHelp size={18} />}
-        items={document.reviewQuestions}
-        placeholder="Question to test understanding"
-        onChange={(items) => update('reviewQuestions', items)}
-      />
-      <GroundedListEditor
-        title="Recommended review"
-        icon={<RefreshCw size={18} />}
-        items={document.recommendedReview}
-        placeholder="Material worth revisiting"
-        onChange={(items) => update('recommendedReview', items)}
-        onSeek={onSeek}
-      />
     </div>
+  )
+}
+
+function ChapterEditor({
+  chapter,
+  position,
+  initiallyOpen,
+  onChange,
+  onRemove,
+  onSeek
+}: {
+  chapter: LectureChapter
+  position: number
+  initiallyOpen: boolean
+  onChange(chapter: LectureChapter): void
+  onRemove(): void
+  onSeek(milliseconds: number): void
+}): React.JSX.Element {
+  // A ninety-minute lecture produces enough chapters that showing them all
+  // expanded is unreadable, so only the first one opens by default.
+  const [open, setOpen] = useState(initiallyOpen)
+  const scope = `chapter-${position}`
+
+  function update<K extends keyof LectureChapter>(key: K, value: LectureChapter[K]): void {
+    onChange({ ...chapter, [key]: value })
+  }
+
+  return (
+    <article className="chapter-editor">
+      <header className="chapter-editor__heading">
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-expanded={open}
+          aria-label={open ? `Collapse chapter ${position}` : `Expand chapter ${position}`}
+          onClick={() => setOpen((current) => !current)}
+        >
+          {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+        </Button>
+        <span className="chapter-editor__position">{position}</span>
+        <input
+          className="chapter-editor__title"
+          value={chapter.title}
+          placeholder="Chapter title"
+          aria-label={`Chapter ${position} title`}
+          onChange={(event) => update('title', event.target.value)}
+        />
+        {chapter.startMs > 0 ? (
+          <button
+            type="button"
+            className="chapter-editor__stamp"
+            onClick={() => onSeek(chapter.startMs)}
+          >
+            {formatDuration(chapter.startMs)}
+          </button>
+        ) : null}
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-label={`Remove chapter ${position}`}
+          onClick={onRemove}
+        >
+          <Trash2 size={15} />
+        </Button>
+      </header>
+
+      {open ? (
+        <div className="chapter-editor__body">
+          <label className="field">
+            <span className="field__label">Chapter summary</span>
+            <textarea
+              rows={4}
+              value={chapter.summary}
+              placeholder="What this chapter established and why it matters"
+              onChange={(event) => update('summary', event.target.value)}
+            />
+          </label>
+
+          <section className="summary-section" aria-labelledby={`${scope}-subtopics`}>
+            <SummarySectionHeading
+              id={`${scope}-subtopics`}
+              icon={<Lightbulb size={18} />}
+              title="Sub-topics"
+              count={chapter.subtopics.length}
+              onAdd={() =>
+                update('subtopics', [...chapter.subtopics, { title: '', keyPoints: [] }])
+              }
+            />
+            <div className="structured-list">
+              {chapter.subtopics.map((subtopic, index) => (
+                <article className="subtopic-editor" key={index}>
+                  <div className="subtopic-editor__heading">
+                    <input
+                      value={subtopic.title}
+                      placeholder="Sub-topic"
+                      aria-label={`Chapter ${position} sub-topic ${index + 1} title`}
+                      onChange={(event) =>
+                        update(
+                          'subtopics',
+                          chapter.subtopics.map((candidate, candidateIndex) =>
+                            candidateIndex === index
+                              ? { ...candidate, title: event.target.value }
+                              : candidate
+                          )
+                        )
+                      }
+                    />
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`Remove sub-topic ${index + 1} of chapter ${position}`}
+                      onClick={() =>
+                        update(
+                          'subtopics',
+                          chapter.subtopics.filter((_, candidateIndex) => candidateIndex !== index)
+                        )
+                      }
+                    >
+                      <Trash2 size={15} />
+                    </Button>
+                  </div>
+                  <GroundedListEditor
+                    title="Key points"
+                    scope={`${scope}-subtopic-${index + 1}`}
+                    icon={<Lightbulb size={16} />}
+                    items={subtopic.keyPoints}
+                    placeholder="Insight to retain"
+                    onChange={(items) =>
+                      update(
+                        'subtopics',
+                        chapter.subtopics.map((candidate, candidateIndex) =>
+                          candidateIndex === index ? { ...candidate, keyPoints: items } : candidate
+                        )
+                      )
+                    }
+                    onSeek={onSeek}
+                  />
+                </article>
+              ))}
+              {chapter.subtopics.length === 0 ? (
+                <p className="structured-list__empty">No sub-topics identified.</p>
+              ) : null}
+            </div>
+          </section>
+
+          <GroundedListEditor
+            title="Emphasized"
+            scope={scope}
+            icon={<Star size={18} />}
+            items={chapter.emphasis}
+            placeholder="What the lecturer stressed"
+            onChange={(items) => update('emphasis', items)}
+            onSeek={onSeek}
+          />
+          <GroundedListEditor
+            title="Open questions"
+            scope={scope}
+            icon={<CircleHelp size={18} />}
+            items={chapter.openQuestions}
+            placeholder="Question left unanswered"
+            onChange={(items) => update('openQuestions', items)}
+            onSeek={onSeek}
+          />
+
+          <section className="summary-section" aria-labelledby={`${scope}-glossary`}>
+            <SummarySectionHeading
+              id={`${scope}-glossary`}
+              icon={<BookOpenCheck size={18} />}
+              title="Key terms"
+              count={chapter.glossary.length}
+              onAdd={() =>
+                update('glossary', [
+                  ...chapter.glossary,
+                  { name: '', definition: '', evidence: [] }
+                ])
+              }
+            />
+            <div className="structured-list">
+              {chapter.glossary.map((concept, index) => (
+                <ConceptEditor
+                  concept={concept}
+                  onSeek={onSeek}
+                  onChange={(next) =>
+                    update(
+                      'glossary',
+                      chapter.glossary.map((candidate, candidateIndex) =>
+                        candidateIndex === index ? next : candidate
+                      )
+                    )
+                  }
+                  onRemove={() =>
+                    update(
+                      'glossary',
+                      chapter.glossary.filter((_, candidateIndex) => candidateIndex !== index)
+                    )
+                  }
+                  key={index}
+                />
+              ))}
+            </div>
+          </section>
+
+          <section className="summary-section" aria-labelledby={`${scope}-study-questions`}>
+            <SummarySectionHeading
+              id={`${scope}-study-questions`}
+              icon={<GraduationCap size={18} />}
+              title="Study questions"
+              count={chapter.studyQuestions.length}
+              onAdd={() =>
+                update('studyQuestions', [
+                  ...chapter.studyQuestions,
+                  { question: '', answer: '', evidence: [] }
+                ])
+              }
+            />
+            <div className="structured-list">
+              {chapter.studyQuestions.map((entry, index) => (
+                <StudyQuestionEditor
+                  entry={entry}
+                  onSeek={onSeek}
+                  onChange={(next) =>
+                    update(
+                      'studyQuestions',
+                      chapter.studyQuestions.map((candidate, candidateIndex) =>
+                        candidateIndex === index ? next : candidate
+                      )
+                    )
+                  }
+                  onRemove={() =>
+                    update(
+                      'studyQuestions',
+                      chapter.studyQuestions.filter((_, candidateIndex) => candidateIndex !== index)
+                    )
+                  }
+                  key={index}
+                />
+              ))}
+              {chapter.studyQuestions.length === 0 ? (
+                <p className="structured-list__empty">No study questions yet.</p>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </article>
+  )
+}
+
+function StudyQuestionEditor({
+  entry,
+  onChange,
+  onRemove,
+  onSeek
+}: {
+  entry: LectureStudyQuestion
+  onChange(entry: LectureStudyQuestion): void
+  onRemove(): void
+  onSeek(milliseconds: number): void
+}): React.JSX.Element {
+  return (
+    <article className="study-question-editor">
+      <div className="study-question-editor__main">
+        <label className="field field--wide">
+          <span className="field__label">Question</span>
+          <textarea
+            rows={2}
+            value={entry.question}
+            onChange={(event) => onChange({ ...entry, question: event.target.value })}
+          />
+        </label>
+        <Button size="icon" variant="ghost" aria-label="Remove study question" onClick={onRemove}>
+          <Trash2 size={15} />
+        </Button>
+      </div>
+      <label className="field field--wide">
+        <span className="field__label">Model answer</span>
+        <textarea
+          rows={3}
+          value={entry.answer}
+          onChange={(event) => onChange({ ...entry, answer: event.target.value })}
+        />
+      </label>
+      <EvidenceList evidence={entry.evidence} onSeek={onSeek} />
+    </article>
   )
 }
 
@@ -446,6 +712,7 @@ function SummarySectionHeading({
 
 function GroundedListEditor({
   title,
+  scope,
   icon,
   items,
   placeholder,
@@ -453,13 +720,15 @@ function GroundedListEditor({
   onSeek
 }: {
   title: string
+  /** Keeps heading ids unique when the same list appears once per chapter. */
+  scope?: string
   icon: React.ReactNode
   items: GroundedText[]
   placeholder: string
   onChange(items: GroundedText[]): void
   onSeek(milliseconds: number): void
 }): React.JSX.Element {
-  const id = `summary-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
+  const id = `summary-${scope ? `${scope}-` : ''}${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
   return (
     <section className="summary-section" aria-labelledby={id}>
       <SummarySectionHeading
@@ -501,62 +770,6 @@ function GroundedListEditor({
           </div>
         ))}
         {items.length === 0 ? <p className="structured-list__empty">None identified.</p> : null}
-      </div>
-    </section>
-  )
-}
-
-function StringListEditor({
-  title,
-  icon,
-  items,
-  placeholder,
-  onChange
-}: {
-  title: string
-  icon: React.ReactNode
-  items: string[]
-  placeholder: string
-  onChange(items: string[]): void
-}): React.JSX.Element {
-  const id = `summary-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
-  return (
-    <section className="summary-section" aria-labelledby={id}>
-      <SummarySectionHeading
-        id={id}
-        icon={icon}
-        title={title}
-        count={items.length}
-        onAdd={() => onChange([...items, ''])}
-      />
-      <div className="structured-list">
-        {items.map((item, index) => (
-          <div className="grounded-row" key={index}>
-            <textarea
-              rows={2}
-              value={item}
-              placeholder={placeholder}
-              aria-label={`${title} item ${index + 1}`}
-              onChange={(event) =>
-                onChange(
-                  items.map((candidate, candidateIndex) =>
-                    candidateIndex === index ? event.target.value : candidate
-                  )
-                )
-              }
-            />
-            <Button
-              size="icon"
-              variant="ghost"
-              aria-label={`Remove ${title.toLowerCase()} item ${index + 1}`}
-              onClick={() =>
-                onChange(items.filter((_, candidateIndex) => candidateIndex !== index))
-              }
-            >
-              <Trash2 size={15} />
-            </Button>
-          </div>
-        ))}
       </div>
     </section>
   )

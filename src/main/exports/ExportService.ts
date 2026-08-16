@@ -3,9 +3,22 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { ExportRequest, SummaryDocumentV1, TranscriptDocumentV1 } from '@shared/index'
 import type { AppDatabase } from '../persistence/Database'
+import { studyNotesHtml, studyNotesMarkdown } from './StudyNotesDocument'
+
+export interface PdfRenderer {
+  render(html: string): Promise<Uint8Array>
+}
+
+type ExportFormat = ExportRequest['formats'][number]
+type TextExportFormat = Exclude<ExportFormat, 'notes' | 'pdf'>
+
+const SUMMARY_REQUIRED = 'A summary is required before exporting study notes'
 
 export class ExportService {
-  constructor(private readonly database: AppDatabase) {}
+  constructor(
+    private readonly database: AppDatabase,
+    private readonly pdfRenderer: PdfRenderer | null = null
+  ) {}
 
   async write(request: ExportRequest): Promise<string[]> {
     const session = this.database.getSession(request.sessionId)
@@ -13,22 +26,55 @@ export class ExportService {
     const transcript = this.database.getTranscript(request.sessionId)
     const summary = this.database.getSummary(request.sessionId)
     if (!transcript) throw new Error('A transcript is required before exporting')
+    const formats = [...new Set(request.formats)]
+    // Checked before the first write so that a missing summary cannot leave a
+    // half-finished set of files behind.
+    if (!summary && formats.some(needsSummary)) throw new Error(SUMMARY_REQUIRED)
     await mkdir(request.directory, { recursive: true })
     const stem = sanitizeFileName(session.title)
     const paths: string[] = []
-    for (const format of [...new Set(request.formats)]) {
-      const extension = format === 'markdown' ? 'md' : format === 'text' ? 'txt' : format
-      const path = join(request.directory, `${stem}.${extension}`)
-      const content = render(format, transcript, summary)
-      await atomicWrite(path, content)
+    for (const format of formats) {
+      const path = join(request.directory, `${stem}.${extensionFor(format)}`)
+      await atomicWrite(path, await this.content(format, transcript, summary))
       paths.push(path)
     }
     return paths
   }
+
+  private async content(
+    format: ExportFormat,
+    transcript: TranscriptDocumentV1,
+    summary: SummaryDocumentV1 | null
+  ): Promise<string | Uint8Array> {
+    if (!needsSummary(format)) return render(format, transcript, summary)
+    if (!summary) throw new Error(SUMMARY_REQUIRED)
+    if (format === 'notes') return studyNotesMarkdown(summary)
+    if (!this.pdfRenderer) throw new Error('PDF export is not available in this build')
+    return this.pdfRenderer.render(studyNotesHtml(summary))
+  }
+}
+
+function needsSummary(format: ExportFormat): format is 'notes' | 'pdf' {
+  return format === 'notes' || format === 'pdf'
+}
+
+function extensionFor(format: ExportFormat): string {
+  switch (format) {
+    case 'markdown':
+      return 'md'
+    // Distinct from the markdown export, which also carries the transcript and
+    // would otherwise claim the same filename.
+    case 'notes':
+      return 'notes.md'
+    case 'text':
+      return 'txt'
+    default:
+      return format
+  }
 }
 
 function render(
-  format: ExportRequest['formats'][number],
+  format: TextExportFormat,
   transcript: TranscriptDocumentV1,
   summary: SummaryDocumentV1 | null
 ): string {
@@ -70,32 +116,12 @@ export function plainText(transcript: TranscriptDocumentV1): string {
 }
 
 function markdown(transcript: TranscriptDocumentV1, summary: SummaryDocumentV1 | null): string {
-  const lines: string[] = [`# ${summary?.title || 'Session notes'}`, '']
-  if (summary) {
-    lines.push(summary.overview, '')
-    if (summary.mode === 'meeting') {
-      addGrounded(lines, 'Decisions', summary.decisions)
-      lines.push('## Action items', '')
-      summary.actionItems.forEach((item) => {
-        const owner = item.assignee ?? 'Unassigned'
-        const due = item.dueText ?? item.dueAt ?? 'No due date'
-        lines.push(`- [ ] ${item.task} - **${owner}** - ${due}`)
-      })
-      lines.push('')
-      addGrounded(lines, 'Open questions', summary.openQuestions)
-      addGrounded(lines, 'Risks', summary.risks)
-    } else {
-      addGrounded(lines, 'Key lessons', summary.keyLessons)
-      addGrounded(lines, 'Outline', summary.outline)
-      lines.push('## Concepts', '')
-      summary.concepts.forEach((concept) =>
-        lines.push(`- **${concept.name}:** ${concept.definition}`)
-      )
-      lines.push('', '## Review questions', '')
-      summary.reviewQuestions.forEach((question) => lines.push(`- ${question}`))
-      lines.push('')
-    }
-  }
+  // The notes half is shared with the study-notes export so the two cannot
+  // describe the same session differently; this format then appends the
+  // transcript that the study notes deliberately leave out.
+  const lines: string[] = summary
+    ? [studyNotesMarkdown(summary).trimEnd(), '']
+    : ['# Session notes', '']
   lines.push('## Transcript', '')
   const speakers = new Map(
     transcript.speakers.map((speaker) => [speaker.id, speaker.displayName ?? speaker.label])
@@ -109,19 +135,6 @@ function markdown(transcript: TranscriptDocumentV1, summary: SummaryDocumentV1 |
     )
   })
   return `${lines.join('\n').trim()}\n`
-}
-
-function addGrounded(
-  lines: string[],
-  title: string,
-  items: Array<{ text: string; evidence: Array<{ startMs: number }> }>
-): void {
-  lines.push(`## ${title}`, '')
-  items.forEach((item) => {
-    const timestamp = item.evidence[0] ? ` (${vttTime(item.evidence[0].startMs)})` : ''
-    lines.push(`- ${item.text}${timestamp}`)
-  })
-  lines.push('')
 }
 
 function sanitizeFileName(value: string): string {
@@ -156,8 +169,12 @@ function pad(value: number): string {
   return String(value).padStart(2, '0')
 }
 
-async function atomicWrite(path: string, content: string): Promise<void> {
+async function atomicWrite(path: string, content: string | Uint8Array): Promise<void> {
   const temporary = `${path}.${randomUUID()}.tmp`
-  await writeFile(temporary, content, { encoding: 'utf8', mode: 0o600 })
+  await writeFile(
+    temporary,
+    content,
+    typeof content === 'string' ? { encoding: 'utf8', mode: 0o600 } : { mode: 0o600 }
+  )
   await rename(temporary, path)
 }

@@ -7,6 +7,7 @@ import {
   sessionSchema,
   summaryDocumentSchema,
   transcriptDocumentSchema,
+  upgradeSummaryDocument,
   type Job,
   type ProviderProfileV1,
   type Session,
@@ -377,7 +378,12 @@ export class AppDatabase {
             'SELECT document_json FROM summary_revisions WHERE session_id = ? ORDER BY revision DESC LIMIT 1'
           )
           .get(sessionId) as Row | undefined)
-    return row ? summaryDocumentSchema.parse(JSON.parse(String(row.document_json))) : null
+    if (!row) return null
+    // Documents written by an earlier build are upgraded on read so that opening
+    // an old session shows its notes instead of throwing a validation error.
+    return summaryDocumentSchema.parse(
+      upgradeSummaryDocument(JSON.parse(String(row.document_json)))
+    )
   }
 
   listProviderProfiles(): ProviderProfileV1[] {
