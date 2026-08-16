@@ -13,7 +13,8 @@ SessionScribe is a local-first Windows and Linux desktop application that record
 - Supports transcript-only sessions; summaries can be generated later when desired.
 - Keeps model IDs and compatible endpoint URLs editable instead of enforcing a provider catalog.
 - Preserves transcript and summary revisions, including speaker rename/merge and manual edits.
-- Exports Markdown, canonical JSON, SRT, and VTT.
+- Summarizes in the language that was spoken, and turns lectures into chapter-structured study notes with key points, emphasis, open questions, a glossary, and study questions with answers.
+- Exports study notes as Markdown or PDF, plus Markdown, plain text, canonical JSON, SRT, and VTT.
 
 ## Install
 

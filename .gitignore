@@ -13,3 +13,9 @@ resources/bin/
 *.log
 *.tsbuildinfo
 .DS_Store
+
+# Per-developer editor and agent settings. Prettier reads this file as an
+# ignore path too, so listing them here also keeps format:check clean.
+.claude/settings.local.json
+.idea/
+.vscode/
