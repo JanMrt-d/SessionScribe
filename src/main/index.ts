@@ -17,6 +17,7 @@ import { FfprobeArtifactProbe, ObsCaptureService, type LoggerLike } from './obs/
 import { LaunchableObsCaptureController } from './capture/LaunchableObsCaptureController'
 import { RecoveredRecordingHandler } from './capture/RecoveredRecordingHandler'
 import type { CaptureController, ProcessingController } from './app/contracts'
+import { contentSecurityPolicy } from './security/contentSecurityPolicy'
 import { isTrustedRendererLocation } from './security/rendererNavigation'
 import { ManagedDiarizationService } from './diarization'
 import { ManagedWhisperService } from './whisper'
@@ -227,16 +228,12 @@ function registerMediaProtocol(
     }
   })
 
+  const policy = contentSecurityPolicy(allowDevelopmentConnections)
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const connectSources = allowDevelopmentConnections
-      ? "'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*"
-      : "'self'"
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': [
-          `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' sessionscribe-media:; connect-src ${connectSources}`
-        ]
+        'Content-Security-Policy': [policy]
       }
     })
   })
