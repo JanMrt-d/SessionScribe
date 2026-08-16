@@ -68,6 +68,12 @@ export function normalizeTranscript(
     warnings.push('The provider did not return word-level timestamps.')
   }
 
+  if (isDominatedByOnePhrase(utterances)) {
+    warnings.push(
+      'Most of this transcript repeats a single phrase, which usually means the transcription looped.'
+    )
+  }
+
   const computedText = utterances.length
     ? utterances.map((utterance) => utterance.text).join('\n')
     : tokensToText(words.map((word) => word.text))
@@ -115,6 +121,30 @@ export function parseCanonicalTranscript(
       generatedAt: metadata.generatedAt
     }
   })
+}
+
+const REPETITION_MINIMUM_UTTERANCES = 20
+const REPETITION_SHARE = 0.5
+
+/**
+ * Detects the decoder-loop failure mode, where a model emits one phrase for the
+ * rest of a recording. The transcript is otherwise well-formed and the job
+ * succeeds, so without this the loss only surfaces once someone reads the
+ * transcript or summarizes it. Conversational filler repeats far below this
+ * share, which keeps short exchanges of "Yes." from being flagged.
+ */
+function isDominatedByOnePhrase(utterances: TranscriptDocumentV1['utterances']): boolean {
+  if (utterances.length < REPETITION_MINIMUM_UTTERANCES) return false
+  const counts = new Map<string, number>()
+  let highest = 0
+  for (const utterance of utterances) {
+    const text = utterance.text.trim().toLowerCase()
+    if (!text) continue
+    const count = (counts.get(text) ?? 0) + 1
+    counts.set(text, count)
+    if (count > highest) highest = count
+  }
+  return highest > utterances.length * REPETITION_SHARE
 }
 
 function collectSpeakerLabels(raw: RawTranscript): string[] {

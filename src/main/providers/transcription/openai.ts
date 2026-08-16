@@ -26,6 +26,12 @@ export interface OpenAiCompatibleTranscriptionOptions {
   maxUploadBytes: number
   timeoutMs: number
   headers: Headers
+  /**
+   * Extra multipart fields for servers that accept decoder options the OpenAI
+   * API does not define. Applied last so a caller cannot silently reshape the
+   * fields this module is responsible for.
+   */
+  extraFormFields?: Readonly<Record<string, string>>
 }
 
 export class OpenAiTranscriptionAdapter implements TranscriptionAdapter<OpenAiTranscriptionProfileV1> {
@@ -154,7 +160,7 @@ function chooseResponseFormat(profile: OpenAiTranscriptionProfileV1): OpenAiResp
 
 async function makeOpenAiForm(
   request: TranscriptionRequest,
-  profile: Pick<OpenAiCompatibleTranscriptionOptions, 'model' | 'language'>,
+  profile: Pick<OpenAiCompatibleTranscriptionOptions, 'model' | 'language' | 'extraFormFields'>,
   responseFormat: OpenAiResponseFormat
 ): Promise<FormData> {
   const form = new FormData()
@@ -190,6 +196,9 @@ async function makeOpenAiForm(
         .join(', ')
         .slice(0, 1_500)
     )
+  }
+  for (const [name, value] of Object.entries(profile.extraFormFields ?? {})) {
+    form.append(name, value)
   }
   return form
 }

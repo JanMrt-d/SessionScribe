@@ -129,6 +129,8 @@ describe('transcription providers', () => {
     expect(receivedPath).toBe('/custom/v9/audio/transcriptions')
     expect(receivedBody).toContain('vendor/future-diarize-2030')
     expect(receivedBody).toContain('diarized_json')
+    // max_context is a whisper.cpp extension, so it must stay off the OpenAI path.
+    expect(receivedBody).not.toContain('max_context')
     expect(transcript.utterances.map((utterance) => utterance.speakerId)).toEqual([
       'speaker-1',
       'speaker-2'
@@ -188,6 +190,9 @@ describe('transcription providers', () => {
     expect(receivedBody).toContain('de')
     expect(receivedBody).toContain('name="timestamp_granularities[]"')
     expect(receivedBody).toContain('name="file"; filename="audio.wav"')
+    // Carried decoder context lets a repeated phrase prime its own next window,
+    // which strands long recordings in a loop of one sentence.
+    expect(receivedBody).toMatch(/name="max_context"\r\n\r\n0\r\n/)
     expect(transcript.text).toBe('Hallo Welt.')
     expect(transcript.languages).toEqual(['de'])
     expect(transcript.utterances[0]).toMatchObject({ startMs: 150, endMs: 1_400 })

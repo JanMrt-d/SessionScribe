@@ -6,6 +6,17 @@ import type { ManagedWhisperProfileV1 } from './types'
 
 const MAX_LOCAL_UPLOAD_BYTES = 2 * 1_024 * 1_024 * 1_024
 
+/**
+ * whisper.cpp primes each decoding window with the previous window's tokens,
+ * unbounded by default. A phrase the model repeats once therefore becomes its
+ * own prompt and reinforces itself, which strands long recordings in a loop of
+ * one sentence that the entropy and log-probability guards cannot break: text
+ * generated from a matching prompt is high-confidence by construction. Decoding
+ * each window without carried text costs some cross-window consistency and
+ * makes that failure mode structurally impossible.
+ */
+const WHISPER_DECODER_OPTIONS = { max_context: '0' } as const
+
 export interface ManagedWhisperLease {
   endpoint: string
   release(): Promise<void>
@@ -47,7 +58,8 @@ export class ManagedWhisperTranscriptionAdapter implements TranscriptionAdapter<
         responseFormat: 'verbose_json',
         maxUploadBytes: MAX_LOCAL_UPLOAD_BYTES,
         timeoutMs: profile.timeoutMs,
-        headers: new Headers()
+        headers: new Headers(),
+        extraFormFields: WHISPER_DECODER_OPTIONS
       })
     } catch (error) {
       throw normalizeProviderError(error, {
