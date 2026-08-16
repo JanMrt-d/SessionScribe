@@ -95,7 +95,7 @@ export class IpcRouter {
 
   constructor(private readonly dependencies: RouterDependencies) {
     for (const profile of dependencies.profiles.list()) {
-      if (profile.kind !== 'local-cli') continue
+      if (!usesLocalExecutable(profile)) continue
       try {
         const executable = realpathSync.native(profile.executable)
         if (statSync(executable).isFile()) this.authorizedProviderExecutables.add(executable)
@@ -391,7 +391,7 @@ export class IpcRouter {
       case 'providers.chooseExecutable': {
         noInputSchema.parse(input)
         const result = await dialog.showOpenDialog(services.window, {
-          title: 'Choose a local transcription executable',
+          title: 'Choose a local provider executable',
           properties: ['openFile']
         })
         if (result.canceled || !result.filePaths[0]) return null
@@ -571,7 +571,7 @@ export class IpcRouter {
   private async authorizeProviderExecutable(
     profile: ProviderProfileV1
   ): Promise<ProviderProfileV1> {
-    if (profile.kind !== 'local-cli') return profile
+    if (!usesLocalExecutable(profile)) return profile
     let executable: string
     try {
       executable = await canonicalExecutable(profile.executable)
@@ -592,6 +592,16 @@ export class IpcRouter {
       })
     })
   }
+}
+
+/**
+ * Profile kinds that spawn a user-selected binary. Every one of them must pass
+ * through the native file-picker grant before it can run.
+ */
+function usesLocalExecutable(
+  profile: ProviderProfileV1
+): profile is Extract<ProviderProfileV1, { executable: string }> {
+  return profile.kind === 'local-cli' || profile.kind === 'claude-cli'
 }
 
 async function canonicalExecutable(candidate: string): Promise<string> {

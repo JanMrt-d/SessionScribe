@@ -7,6 +7,7 @@ import {
 } from './transcription/managed-whisper'
 import { OpenAiCompatibleSummaryAdapter } from './summary/openai-compatible'
 import { OllamaSummaryAdapter } from './summary/ollama'
+import { ClaudeCliSummaryAdapter } from './summary/claude-cli'
 import { ProviderRegistry } from './registry'
 import type { ProviderAdapter } from './contracts'
 
@@ -17,6 +18,7 @@ export * from './http'
 export * from './normalize'
 export * from './registry'
 export * from './security'
+export * from './summary/claude-cli'
 export * from './summary/engine'
 export * from './summary/ollama'
 export * from './summary/openai-compatible'
@@ -36,7 +38,8 @@ export function createDefaultProviderRegistry(
     new OpenAiTranscriptionAdapter(),
     new LocalCliTranscriptionAdapter(),
     new OpenAiCompatibleSummaryAdapter(),
-    new OllamaSummaryAdapter()
+    new OllamaSummaryAdapter(),
+    new ClaudeCliSummaryAdapter()
   ]
   if (managedWhisperRuntime) {
     adapters.push(new ManagedWhisperTranscriptionAdapter(managedWhisperRuntime))

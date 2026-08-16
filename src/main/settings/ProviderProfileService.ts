@@ -108,6 +108,20 @@ export class ProviderProfileService {
       }
       return
     }
+    if (profile.kind === 'claude-cli') {
+      if (!isAbsolute(profile.executable)) {
+        throw new Error('The agent CLI executable must use an absolute path')
+      }
+      if (Object.keys(profile.extraHeaders).length > 0) {
+        throw new Error('HTTP headers cannot be configured for a local CLI')
+      }
+      for (const name of configuredSecretNames) {
+        if (!/^env:[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+          throw new Error('Local CLI secrets must use env:VARIABLE names')
+        }
+      }
+      return
+    }
     if (profile.kind === 'managed-whisper') {
       if (Object.keys(profile.extraHeaders).length > 0 || configuredSecretNames.length > 0) {
         throw new Error('Managed Whisper does not accept HTTP headers or credentials')

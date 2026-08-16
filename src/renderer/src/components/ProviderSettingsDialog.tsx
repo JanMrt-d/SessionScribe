@@ -42,6 +42,7 @@ interface ProviderFormState {
   args: string
   outputMode: 'stdout' | 'file'
   outputFormat: 'canonical-v1' | 'openai-verbose-json' | 'elevenlabs-json' | 'text'
+  outputEnvelope: 'claude-json' | 'raw'
   inheritEnvironment: boolean
   apiStyle: 'responses' | 'chat-completions'
   structuredOutput: 'json-schema' | 'json-object' | 'prompt-only'
@@ -340,7 +341,9 @@ export function ProviderSettingsDialog({
                   </datalist>
                 ) : null}
               </label>
-              {form.kind !== 'local-cli' && form.kind !== 'managed-whisper' ? (
+              {form.kind !== 'local-cli' &&
+              form.kind !== 'managed-whisper' &&
+              form.kind !== 'claude-cli' ? (
                 <label className="field">
                   <span className="field__label">Base URL</span>
                   <input
@@ -628,93 +631,157 @@ function ProviderSpecificFields({
   }
 
   return (
-    <section className="provider-section">
-      <h3>Summary options</h3>
-      <div className="form-grid form-grid--two">
-        {form.kind === 'openai-compatible' ? (
-          <>
+    <>
+      {form.kind === 'claude-cli' ? (
+        <section className="provider-section">
+          <h3>Agent command</h3>
+          <div className="form-grid form-grid--two">
+            <label className="field field--wide">
+              <span className="field__label">Executable</span>
+              <div className="directory-picker">
+                <input
+                  value={form.executable}
+                  placeholder="Choose the agent CLI executable"
+                  readOnly
+                  required
+                />
+                <IconButton
+                  label="Choose executable"
+                  disabled={busy}
+                  onClick={() => void onChooseExecutable()}
+                >
+                  <FolderOpen size={16} />
+                </IconButton>
+              </div>
+            </label>
+            <label className="field field--wide">
+              <span className="field__label">Arguments, one per line</span>
+              <textarea
+                rows={7}
+                value={form.args}
+                onChange={(event) => onChange({ ...form, args: event.target.value })}
+                spellCheck={false}
+                placeholder={'-p\n--output-format\njson'}
+              />
+            </label>
             <SelectField
-              label="API style"
-              value={form.apiStyle}
+              label="Response envelope"
+              value={form.outputEnvelope}
               onValueChange={(value) =>
-                onChange({ ...form, apiStyle: value as 'responses' | 'chat-completions' })
+                onChange({ ...form, outputEnvelope: value as 'claude-json' | 'raw' })
               }
               options={[
-                { value: 'responses', label: 'Responses API' },
-                { value: 'chat-completions', label: 'Chat Completions' }
+                { value: 'claude-json', label: 'Claude Code JSON' },
+                { value: 'raw', label: 'Raw standard output' }
               ]}
             />
-            <SelectField
-              label="Structured output"
-              value={form.structuredOutput}
-              onValueChange={(value) =>
-                onChange({
-                  ...form,
-                  structuredOutput: value as ProviderFormState['structuredOutput']
-                })
-              }
-              options={[
-                { value: 'json-schema', label: 'JSON Schema' },
-                { value: 'json-object', label: 'JSON object' },
-                { value: 'prompt-only', label: 'Prompt only' }
-              ]}
-            />
-          </>
-        ) : (
-          <label className="field">
-            <span className="field__label">Maximum generated tokens</span>
-            <input
-              type="number"
-              min="1"
-              value={form.numPredict}
-              onChange={(event) => onChange({ ...form, numPredict: event.target.value })}
-              placeholder="Provider default"
-            />
-          </label>
-        )}
-        <label className="field">
-          <span className="field__label">Context window</span>
-          <div className="input-with-suffix">
-            <input
-              type="number"
-              min="2048"
-              value={form.contextWindowTokens}
-              onChange={(event) => onChange({ ...form, contextWindowTokens: event.target.value })}
-            />
-            <span>tokens</span>
+            <label className="check-field check-field--boxed">
+              <input
+                type="checkbox"
+                checked={form.inheritEnvironment}
+                onChange={(event) =>
+                  onChange({ ...form, inheritEnvironment: event.target.checked })
+                }
+              />
+              <span>Inherit process environment</span>
+            </label>
+            <p className="field__hint field--wide">
+              The prompt is written to the command’s standard input. Use <code>{'{model}'}</code>{' '}
+              and <code>{'{system}'}</code> placeholders in the arguments; without a{' '}
+              <code>{'{system}'}</code> argument the grounding instructions are prepended to the
+              prompt instead. Inheriting the environment lets the CLI find an existing login.
+            </p>
           </div>
-        </label>
-        {form.kind === 'openai-compatible' ? (
+        </section>
+      ) : null}
+      <section className="provider-section">
+        <h3>Summary options</h3>
+        <div className="form-grid form-grid--two">
+          {form.kind === 'openai-compatible' ? (
+            <>
+              <SelectField
+                label="API style"
+                value={form.apiStyle}
+                onValueChange={(value) =>
+                  onChange({ ...form, apiStyle: value as 'responses' | 'chat-completions' })
+                }
+                options={[
+                  { value: 'responses', label: 'Responses API' },
+                  { value: 'chat-completions', label: 'Chat Completions' }
+                ]}
+              />
+              <SelectField
+                label="Structured output"
+                value={form.structuredOutput}
+                onValueChange={(value) =>
+                  onChange({
+                    ...form,
+                    structuredOutput: value as ProviderFormState['structuredOutput']
+                  })
+                }
+                options={[
+                  { value: 'json-schema', label: 'JSON Schema' },
+                  { value: 'json-object', label: 'JSON object' },
+                  { value: 'prompt-only', label: 'Prompt only' }
+                ]}
+              />
+            </>
+          ) : form.kind === 'ollama' ? (
+            <label className="field">
+              <span className="field__label">Maximum generated tokens</span>
+              <input
+                type="number"
+                min="1"
+                value={form.numPredict}
+                onChange={(event) => onChange({ ...form, numPredict: event.target.value })}
+                placeholder="Provider default"
+              />
+            </label>
+          ) : null}
+          <label className="field">
+            <span className="field__label">Context window</span>
+            <div className="input-with-suffix">
+              <input
+                type="number"
+                min="2048"
+                value={form.contextWindowTokens}
+                onChange={(event) => onChange({ ...form, contextWindowTokens: event.target.value })}
+              />
+              <span>tokens</span>
+            </div>
+          </label>
+          {form.kind === 'openai-compatible' ? (
+            <label className="field field--wide">
+              <span className="field__label">Extra request body (JSON)</span>
+              <textarea
+                rows={4}
+                value={form.extraBody}
+                onChange={(event) => onChange({ ...form, extraBody: event.target.value })}
+                spellCheck={false}
+              />
+            </label>
+          ) : null}
           <label className="field field--wide">
-            <span className="field__label">Extra request body (JSON)</span>
+            <span className="field__label">Meeting prompt override</span>
             <textarea
-              rows={4}
-              value={form.extraBody}
-              onChange={(event) => onChange({ ...form, extraBody: event.target.value })}
-              spellCheck={false}
+              rows={3}
+              value={form.meetingPromptOverride}
+              onChange={(event) => onChange({ ...form, meetingPromptOverride: event.target.value })}
+              placeholder="Use the built-in grounded meeting prompt"
             />
           </label>
-        ) : null}
-        <label className="field field--wide">
-          <span className="field__label">Meeting prompt override</span>
-          <textarea
-            rows={3}
-            value={form.meetingPromptOverride}
-            onChange={(event) => onChange({ ...form, meetingPromptOverride: event.target.value })}
-            placeholder="Use the built-in grounded meeting prompt"
-          />
-        </label>
-        <label className="field field--wide">
-          <span className="field__label">Lecture prompt override</span>
-          <textarea
-            rows={3}
-            value={form.lecturePromptOverride}
-            onChange={(event) => onChange({ ...form, lecturePromptOverride: event.target.value })}
-            placeholder="Use the built-in spoken-lecture prompt"
-          />
-        </label>
-      </div>
-    </section>
+          <label className="field field--wide">
+            <span className="field__label">Lecture prompt override</span>
+            <textarea
+              rows={3}
+              value={form.lecturePromptOverride}
+              onChange={(event) => onChange({ ...form, lecturePromptOverride: event.target.value })}
+              placeholder="Use the built-in spoken-lecture prompt"
+            />
+          </label>
+        </div>
+      </section>
+    </>
   )
 }
 
@@ -831,7 +898,8 @@ const PROVIDER_KINDS: ProviderKind[] = [
   'elevenlabs',
   'local-cli',
   'openai-compatible',
-  'ollama'
+  'ollama',
+  'claude-cli'
 ]
 
 function providerKindLabel(kind: ProviderKind): string {
@@ -841,20 +909,22 @@ function providerKindLabel(kind: ProviderKind): string {
     elevenlabs: 'ElevenLabs transcription',
     'local-cli': 'Local CLI transcription',
     'openai-compatible': 'OpenAI-compatible summary',
-    ollama: 'Ollama summary'
+    ollama: 'Ollama summary',
+    'claude-cli': 'Agent CLI summary'
   }
   return labels[kind]
 }
 
 function providerIcon(kind: ProviderKind): React.JSX.Element {
-  if (kind === 'local-cli' || kind === 'managed-whisper') return <Cpu size={16} />
+  if (kind === 'local-cli' || kind === 'managed-whisper' || kind === 'claude-cli')
+    return <Cpu size={16} />
   if (kind === 'ollama') return <Server size={16} />
   return <Cloud size={16} />
 }
 
 function newProviderForm(kind: ProviderKind): ProviderFormState {
   const now = new Date().toISOString()
-  const summary = kind === 'openai-compatible' || kind === 'ollama'
+  const summary = kind === 'openai-compatible' || kind === 'ollama' || kind === 'claude-cli'
   return {
     id: crypto.randomUUID(),
     createdAt: now,
@@ -871,14 +941,18 @@ function newProviderForm(kind: ProviderKind): ProviderFormState {
               ? 'gpt-5.6-terra'
               : kind === 'ollama'
                 ? 'qwen3.5:9b'
-                : '',
+                : kind === 'claude-cli'
+                  ? 'claude-opus-5'
+                  : '',
     baseUrl:
       kind === 'ollama'
         ? 'http://127.0.0.1:11434'
         : kind === 'elevenlabs'
           ? 'https://api.elevenlabs.io/v1'
           : 'https://api.openai.com/v1',
-    timeoutMs: summary ? '180000' : '3600000',
+    // An agent CLI turn is slower than an HTTP completion, so it gets a longer
+    // default than the other summary providers.
+    timeoutMs: kind === 'claude-cli' ? '600000' : summary ? '180000' : '3600000',
     language: '',
     diarize: true,
     numSpeakers: '',
@@ -886,20 +960,38 @@ function newProviderForm(kind: ProviderKind): ProviderFormState {
     responseFormat: 'diarized_json',
     maxUploadBytes: String(25 * 1_048_576),
     executable: '',
-    args: '',
+    args:
+      kind === 'claude-cli'
+        ? [
+            '-p',
+            '--output-format',
+            'json',
+            '--model',
+            '{model}',
+            '--append-system-prompt',
+            '{system}'
+          ].join('\n')
+        : '',
     outputMode: 'stdout',
     outputFormat: 'canonical-v1',
-    inheritEnvironment: false,
+    outputEnvelope: 'claude-json',
+    // The agent CLI locates an existing login through the user's own HOME and
+    // config, so it needs the real environment by default.
+    inheritEnvironment: kind === 'claude-cli',
     apiStyle: 'responses',
     structuredOutput: 'json-schema',
-    contextWindowTokens: kind === 'openai-compatible' ? '1000000' : '128000',
+    contextWindowTokens:
+      kind === 'openai-compatible' || kind === 'claude-cli' ? '1000000' : '128000',
     extraBody: '{}',
     meetingPromptOverride: '',
     lecturePromptOverride: '',
     numPredict: '',
     headers: [],
     secrets:
-      kind === 'ollama' || kind === 'local-cli' || kind === 'managed-whisper'
+      kind === 'ollama' ||
+      kind === 'local-cli' ||
+      kind === 'managed-whisper' ||
+      kind === 'claude-cli'
         ? []
         : [{ key: 'apiKey', value: '' }],
     secretRefs: {}
@@ -969,6 +1061,17 @@ function profileToForm(profile: ProviderProfileV1): ProviderFormState {
         ...common,
         contextWindowTokens: String(profile.contextWindowTokens),
         numPredict: profile.numPredict ? String(profile.numPredict) : '',
+        meetingPromptOverride: profile.meetingPromptOverride ?? '',
+        lecturePromptOverride: profile.lecturePromptOverride ?? ''
+      }
+    case 'claude-cli':
+      return {
+        ...common,
+        executable: profile.executable,
+        args: profile.args.join('\n'),
+        outputEnvelope: profile.outputEnvelope,
+        inheritEnvironment: profile.inheritEnvironment,
+        contextWindowTokens: String(profile.contextWindowTokens),
         meetingPromptOverride: profile.meetingPromptOverride ?? '',
         lecturePromptOverride: profile.lecturePromptOverride ?? ''
       }
@@ -1067,6 +1170,22 @@ function formToProfile(form: ProviderFormState): ProviderProfileV1 {
         baseUrl: form.baseUrl,
         contextWindowTokens: Number(form.contextWindowTokens),
         numPredict: form.numPredict ? Number(form.numPredict) : null,
+        meetingPromptOverride: form.meetingPromptOverride.trim() || null,
+        lecturePromptOverride: form.lecturePromptOverride.trim() || null
+      }
+    case 'claude-cli':
+      return {
+        ...common,
+        task: 'summary',
+        kind: 'claude-cli',
+        executable: form.executable.trim(),
+        args: form.args
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean),
+        outputEnvelope: form.outputEnvelope,
+        inheritEnvironment: form.inheritEnvironment,
+        contextWindowTokens: Number(form.contextWindowTokens),
         meetingPromptOverride: form.meetingPromptOverride.trim() || null,
         lecturePromptOverride: form.lecturePromptOverride.trim() || null
       }

@@ -69,13 +69,33 @@ export const ollamaSummaryProfileSchema = remoteBaseSchema.extend({
   lecturePromptOverride: z.string().nullable()
 })
 
+/**
+ * Drives a locally installed agent CLI (Claude Code's `claude -p`) for summaries.
+ * The prompt is written to the child's stdin rather than argv so a long transcript
+ * chunk cannot exceed the platform argument limit, which is why — unlike the
+ * transcription CLI adapter — no `{input}` placeholder is required.
+ */
+export const claudeCliSummaryProfileSchema = baseProfileSchema.extend({
+  task: z.literal('summary'),
+  kind: z.literal('claude-cli'),
+  executable: z.string().min(1),
+  args: z.array(z.string()),
+  /** `claude-json` unwraps the `--output-format json` envelope; `raw` reads stdout verbatim. */
+  outputEnvelope: z.enum(['claude-json', 'raw']),
+  inheritEnvironment: z.boolean(),
+  contextWindowTokens: z.number().int().min(2_048),
+  meetingPromptOverride: z.string().nullable(),
+  lecturePromptOverride: z.string().nullable()
+})
+
 export const providerProfileSchema = z.discriminatedUnion('kind', [
   elevenLabsProfileSchema,
   openAiTranscriptionProfileSchema,
   localCliTranscriptionProfileSchema,
   managedWhisperProfileSchema,
   openAiSummaryProfileSchema,
-  ollamaSummaryProfileSchema
+  ollamaSummaryProfileSchema,
+  claudeCliSummaryProfileSchema
 ])
 export type ProviderProfileV1 = z.infer<typeof providerProfileSchema>
 export type TranscriptionProfileV1 = Extract<ProviderProfileV1, { task: 'transcription' }>
