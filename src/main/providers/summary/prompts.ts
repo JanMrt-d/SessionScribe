@@ -147,7 +147,23 @@ export function formatTranscript(transcript: TranscriptDocumentV1): string[] {
 }
 
 export function summaryJsonSchema(mode: SessionMode): Record<string, unknown> {
-  return z.toJSONSchema(draftSchemaForMode(mode), { target: 'draft-2020-12' })
+  const schema = z.toJSONSchema(draftSchemaForMode(mode), { target: 'draft-2020-12' })
+  return withoutDateTimePatterns(schema) as Record<string, unknown>
+}
+
+// Zod emits an exhaustive validation regex alongside format: "date-time", which
+// llama.cpp cannot compile into a sampling grammar (Ollama rejects the request
+// with HTTP 400). The format keyword is guidance enough for generation, and the
+// Zod schema still enforces the full rule when the response is parsed.
+function withoutDateTimePatterns(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutDateTimePatterns)
+  if (!value || typeof value !== 'object') return value
+  const record = value as Record<string, unknown>
+  return Object.fromEntries(
+    Object.entries(record)
+      .filter(([key]) => key !== 'pattern' || record.format !== 'date-time')
+      .map(([key, child]) => [key, withoutDateTimePatterns(child)])
+  )
 }
 
 function escapeXml(value: string): string {
