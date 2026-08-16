@@ -45,17 +45,21 @@ export class ClaudeCliSummaryAdapter implements SummaryAdapter<ClaudeCliSummaryP
       const environment = await resolveEnvironment(profile, context)
       const generate: SummaryTextGenerator = async (generation) => {
         const carriesSystemPrompt = profile.args.some((argument) => argument.includes('{system}'))
+        // The CLI has no response-schema parameter, so the schema must travel in
+        // the prompt itself; without it the model can only guess the field names
+        // that the engine's strict validation then rejects.
+        const systemPrompt = `${generation.systemPrompt}\n\nThe response must be a single JSON object that validates against this JSON Schema:\n${JSON.stringify(generation.jsonSchema)}`
         const args = profile.args.map((argument) =>
           substituteArgument(argument, {
             model: profile.model,
-            system: generation.systemPrompt
+            system: systemPrompt
           })
         )
         // Without a {system} placeholder the grounding rules would never reach the
         // model, so they are prepended to the stdin payload instead of dropped.
         const stdin = carriesSystemPrompt
           ? generation.userPrompt
-          : `${generation.systemPrompt}\n\n${generation.userPrompt}`
+          : `${systemPrompt}\n\n${generation.userPrompt}`
         const stdout = await executeProcess(
           profile.executable,
           args,

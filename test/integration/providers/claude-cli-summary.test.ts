@@ -116,7 +116,11 @@ describe('agent CLI summary provider', () => {
     const captured = await capture(capturePath)
     expect(captured.args[captured.args.indexOf('--model') + 1]).toBe('claude-opus-5')
     // The system prompt reached the CLI through its placeholder, not stdin.
-    expect(captured.args[captured.args.indexOf('--system') + 1]).toContain('utterance')
+    const systemArgument = captured.args[captured.args.indexOf('--system') + 1]
+    expect(systemArgument).toContain('utterance')
+    // The CLI has no schema flag, so the JSON Schema must ride in the prompt.
+    expect(systemArgument).toContain('JSON Schema')
+    expect(systemArgument).toContain('"explicitAssignment"')
     expect(captured.stdin).toContain('Alice owns the release task.')
   })
 
@@ -145,6 +149,8 @@ describe('agent CLI summary provider', () => {
     expect(captured.stdin.indexOf('utterance')).toBeLessThan(
       captured.stdin.indexOf('Alice owns the release task.')
     )
+    // The schema travels with the system prompt when it is prepended to stdin.
+    expect(captured.stdin).toContain('"explicitAssignment"')
   })
 
   it('reports a failing CLI as a process error rather than invalid output', async () => {
