@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
-import { open, rename, rm, stat } from 'node:fs/promises'
+import { chmod, open, rename, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import type { WhisperDownloadAsset } from './constants'
+import { MANAGED_MODEL_FILE_MODE, type WhisperDownloadAsset } from './constants'
 import { ManagedWhisperError, throwIfWhisperCancelled } from './errors'
 
 const HASH_BUFFER_BYTES = 1024 * 1024
@@ -43,7 +43,7 @@ export async function downloadVerifiedAsset(
   }
   if (offset === options.asset.size) {
     if (await verifyFile(partialPath, options.asset, options.signal)) {
-      await rename(partialPath, finalPath)
+      await publishAsset(partialPath, finalPath)
       options.onProgress(options.asset.size, options.asset.size)
       return finalPath
     }
@@ -133,9 +133,19 @@ export async function downloadVerifiedAsset(
       'The downloaded Whisper model failed integrity verification.'
     )
   }
-  await rename(partialPath, finalPath)
+  await publishAsset(partialPath, finalPath)
   options.onProgress(options.asset.size, options.asset.size)
   return finalPath
+}
+
+/**
+ * Publishes a verified download. The file is written 0o600 while partial and
+ * widened to 0o644 only once it is complete, because the managed container runs
+ * with every capability dropped and therefore cannot read owner-only files.
+ */
+async function publishAsset(partialPath: string, finalPath: string): Promise<void> {
+  await chmod(partialPath, MANAGED_MODEL_FILE_MODE)
+  await rename(partialPath, finalPath)
 }
 
 export async function verifyFile(

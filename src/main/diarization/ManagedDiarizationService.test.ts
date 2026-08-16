@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -64,6 +64,27 @@ describe('ManagedDiarizationService setup', () => {
     expect(create).toContain('no-new-privileges')
     expect(create?.join(' ')).toContain('--group-add 485')
     expect(create?.join(' ')).toMatch(/--volume \S+:\/models:ro,z/)
+  })
+
+  it('leaves the nested model tree readable by a container that cannot bypass permission bits', async () => {
+    const dataDirectory = await mkdtemp(join(tmpdir(), 'managed-diarization-modes-'))
+    temporaryDirectories.push(dataDirectory)
+    const service = await createService({ runner: new FakeDockerRunner(), dataDirectory })
+
+    await service.install()
+
+    const modelDirectory = join(dataDirectory, 'diarization', 'models')
+    expect((await stat(modelDirectory)).mode & 0o777).toBe(0o755)
+    for (const asset of ASSETS) {
+      const segments = asset.relativePath.split('/')
+      // Every directory on the way to a weight must be traversable, not just the root.
+      for (let depth = 1; depth < segments.length; depth += 1) {
+        const directory = join(modelDirectory, ...segments.slice(0, depth))
+        expect((await stat(directory)).mode & 0o777).toBe(0o755)
+      }
+      expect((await stat(join(modelDirectory, ...segments))).mode & 0o777).toBe(0o644)
+    }
+    expect((await stat(join(dataDirectory, 'diarization'))).mode & 0o777).toBe(0o700)
   })
 
   it('refuses to control a same-named container without the ownership label', async () => {

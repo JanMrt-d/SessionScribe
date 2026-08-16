@@ -1,5 +1,5 @@
 import { constants as fsConstants } from 'node:fs'
-import { access, mkdir, stat, statfs } from 'node:fs/promises'
+import { access, chmod, mkdir, stat, statfs } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 
 import type {
@@ -15,6 +15,7 @@ import {
   type WhisperCommandResult,
   type WhisperCommandRunner
 } from '../whisper/process'
+import { MANAGED_MODEL_DIRECTORY_MODE, MANAGED_MODEL_FILE_MODE } from '../whisper/constants'
 import {
   DIARIZATION_MODEL_ASSETS,
   type DiarizationDownloadAsset,
@@ -79,6 +80,7 @@ interface InspectedContainer {
   readonly expectedImage: boolean
   readonly running: boolean
   readonly origin: string | null
+  readonly exitCode: number | null
 }
 
 export class ManagedDiarizationService {
@@ -415,7 +417,7 @@ export class ManagedDiarizationService {
       canStart: false,
       canStop: false
     })
-    await mkdir(this.modelDirectory, { recursive: true, mode: 0o700 })
+    await this.prepareModelDirectory()
     await this.checkPrerequisites(signal, true)
 
     this.updateStatus({
@@ -440,7 +442,7 @@ export class ManagedDiarizationService {
     for (const asset of this.modelAssets) {
       throwIfDiarizationCancelled(signal)
       const targetDirectory = join(this.modelDirectory, dirname(asset.relativePath))
-      await mkdir(targetDirectory, { recursive: true, mode: 0o700 })
+      await mkdir(targetDirectory, { recursive: true, mode: MANAGED_MODEL_DIRECTORY_MODE })
       const base = completedBase
       try {
         await downloadVerifiedAsset({
@@ -783,7 +785,7 @@ export class ManagedDiarizationService {
 
   private async performStart(signal: AbortSignal): Promise<string> {
     throwIfDiarizationCancelled(signal)
-    await mkdir(this.modelDirectory, { recursive: true, mode: 0o700 })
+    await this.prepareModelDirectory()
     await this.checkPrerequisites(signal, false)
     const container = await this.inspectContainer(signal)
     if (!container || !(await this.artifactsPresent(signal))) {
@@ -833,9 +835,23 @@ export class ManagedDiarizationService {
     while (this.now().getTime() <= deadline) {
       throwIfDiarizationCancelled(signal)
       const container = await this.inspectContainer(signal)
-      if (!container) break
+      if (!container) {
+        throw new ManagedDiarizationError(
+          'START_FAILED',
+          'The managed diarization container disappeared while it was starting.'
+        )
+      }
       this.assertOwnedContainer(container)
-      if (!container.running) break
+      // A container that stopped on its own never became ready and never will;
+      // reporting the readiness deadline would blame a timeout for a crash.
+      if (!container.running) {
+        throw new ManagedDiarizationError(
+          'START_FAILED',
+          `Diarization stopped while loading${
+            container.exitCode === null ? '' : ` (exit code ${container.exitCode})`
+          }. Run "docker logs ${MANAGED_DIARIZATION_CONTAINER_NAME}" for the cause.`
+        )
+      }
       if (
         container.origin &&
         (await this.healthCheck(container.origin, signal).catch(() => false))
@@ -987,7 +1003,7 @@ export class ManagedDiarizationService {
     if (!Array.isArray(value) || value.length === 0) return null
     const entry = value[0] as {
       Config?: { Image?: unknown; Labels?: Record<string, unknown> }
-      State?: { Running?: unknown }
+      State?: { Running?: unknown; ExitCode?: unknown }
       NetworkSettings?: {
         Ports?: Record<string, Array<{ HostIp?: unknown; HostPort?: unknown }> | null>
       }
@@ -1006,7 +1022,8 @@ export class ManagedDiarizationService {
         }
       }
     }
-    return { owned, expectedImage, running, origin }
+    const exitCode = typeof entry.State?.ExitCode === 'number' ? entry.State.ExitCode : null
+    return { owned, expectedImage, running, origin, exitCode }
   }
 
   private assertOwnedContainer(container: InspectedContainer): void {
@@ -1015,6 +1032,44 @@ export class ManagedDiarizationService {
         'CONTAINER_CONFLICT',
         `A container named ${MANAGED_DIARIZATION_CONTAINER_NAME} exists but is not owned by SessionScribe.`
       )
+    }
+  }
+
+  /**
+   * Creates the model tree and repairs the permissions the container needs.
+   * The weights live in per-model subdirectories, so every directory on the way
+   * to an asset is widened as well. Existing installations were written
+   * 0o700/0o600 before this was understood, so the modes are reapplied on every
+   * status refresh, install, and start rather than only at download time.
+   */
+  private async prepareModelDirectory(): Promise<void> {
+    await mkdir(this.modelDirectory, { recursive: true, mode: 0o700 })
+    try {
+      await chmod(this.modelDirectory, MANAGED_MODEL_DIRECTORY_MODE)
+      for (const asset of this.modelAssets) {
+        const segments = asset.relativePath.split('/')
+        for (let depth = 1; depth < segments.length; depth += 1) {
+          await this.relaxIfPresent(
+            join(this.modelDirectory, ...segments.slice(0, depth)),
+            MANAGED_MODEL_DIRECTORY_MODE
+          )
+        }
+        await this.relaxIfPresent(join(this.modelDirectory, ...segments), MANAGED_MODEL_FILE_MODE)
+      }
+    } catch (cause) {
+      throw new ManagedDiarizationError(
+        'PERMISSION_DENIED',
+        'The speaker model files could not be made readable by the container.',
+        { cause }
+      )
+    }
+  }
+
+  private async relaxIfPresent(path: string, mode: number): Promise<void> {
+    try {
+      await chmod(path, mode)
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
     }
   }
 

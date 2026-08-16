@@ -26,6 +26,19 @@ export const WHISPER_SILERO_VAD_ASSET: WhisperDownloadAsset = {
   sha256: '2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987'
 }
 
+/**
+ * Managed containers run as root but with `--cap-drop ALL`, so they hold
+ * neither CAP_DAC_OVERRIDE nor CAP_DAC_READ_SEARCH and cannot bypass permission
+ * bits. Under a rootful Docker daemon the container's root is host uid 0 rather
+ * than the owner of these files, so owner-only weights are unreadable and the
+ * server exits before it can bind. Model weights are public, hash-pinned
+ * downloads rather than user data, and the enclosing runtime directory stays
+ * 0o700, so widening only the model tree keeps it unreachable by other users on
+ * the host while letting the sandboxed container open it.
+ */
+export const MANAGED_MODEL_DIRECTORY_MODE = 0o755
+export const MANAGED_MODEL_FILE_MODE = 0o644
+
 export const MANAGED_WHISPER_IDLE_TIMEOUT_MS = 5 * 60 * 1_000
 export const MANAGED_WHISPER_READINESS_TIMEOUT_MS = 2 * 60 * 1_000
 export const MANAGED_WHISPER_MINIMUM_FREE_BYTES = 6 * 1_024 * 1_024 * 1_024

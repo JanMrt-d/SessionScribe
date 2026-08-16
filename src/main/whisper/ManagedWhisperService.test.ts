@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -165,6 +165,52 @@ describe('ManagedWhisperService lifecycle', () => {
       canInstall: true,
       activeTranscriptions: 0
     })
+  })
+
+  it('leaves the model files readable by a container that cannot bypass permission bits', async () => {
+    const runner = new FakeDockerRunner()
+    const service = await createService({ runner })
+
+    await service.install()
+
+    const modelDirectory = join(serviceDataDirectory(service), 'whisper', 'models')
+    expect((await stat(modelDirectory)).mode & 0o777).toBe(0o755)
+    for (const asset of [MODEL_ASSET, VAD_ASSET]) {
+      expect((await stat(join(modelDirectory, asset.fileName))).mode & 0o777).toBe(0o644)
+    }
+    // The runtime directory above the models stays private to the user.
+    expect((await stat(join(serviceDataDirectory(service), 'whisper'))).mode & 0o777).toBe(0o700)
+  })
+
+  it('repairs an existing owner-only installation before starting', async () => {
+    const runner = new FakeDockerRunner()
+    const service = await createService({ runner })
+    await service.install()
+    const modelDirectory = join(serviceDataDirectory(service), 'whisper', 'models')
+    // Reproduce an installation downloaded before the modes were widened.
+    await chmod(join(modelDirectory, MODEL_ASSET.fileName), 0o600)
+    await chmod(join(modelDirectory, VAD_ASSET.fileName), 0o600)
+    await chmod(modelDirectory, 0o700)
+
+    const lease = await service.acquire()
+
+    expect((await stat(modelDirectory)).mode & 0o777).toBe(0o755)
+    expect((await stat(join(modelDirectory, MODEL_ASSET.fileName))).mode & 0o777).toBe(0o644)
+    await lease.release()
+  })
+
+  it('reports the exit code when the container stops instead of blaming the readiness deadline', async () => {
+    const runner = new FakeDockerRunner()
+    const service = await createService({ runner })
+    await service.install()
+    runner.exitsImmediatelyWith = 3
+
+    const error = await service.acquire().catch((cause: unknown) => cause)
+
+    expect(error).toMatchObject({ code: 'START_FAILED' })
+    const message = (error as Error).message
+    expect(message).toContain('exit code 3')
+    expect(message).not.toContain('two minutes')
   })
 
   it('starts on acquisition, rejects a busy stop, and stops after the idle deadline', async () => {
@@ -391,6 +437,7 @@ interface FakeContainer {
   image: string
   running: boolean
   port: string
+  exitCode?: number
 }
 
 class FakeDockerRunner implements WhisperCommandRunner {
@@ -398,6 +445,7 @@ class FakeDockerRunner implements WhisperCommandRunner {
   container: FakeContainer | null = null
   versionError: string | null = null
   stopError: string | null = null
+  exitsImmediatelyWith: number | null = null
 
   async run(executable: string, args: readonly string[]): Promise<WhisperCommandResult> {
     expect(executable.startsWith('/')).toBe(true)
@@ -419,7 +467,7 @@ class FakeDockerRunner implements WhisperCommandRunner {
                 ? { [MANAGED_WHISPER_LABEL_KEY]: MANAGED_WHISPER_LABEL_VALUE }
                 : {}
             },
-            State: { Running: this.container.running },
+            State: { Running: this.container.running, ExitCode: this.container.exitCode ?? 0 },
             NetworkSettings: {
               Ports: {
                 '8080/tcp': this.container.running
@@ -441,7 +489,12 @@ class FakeDockerRunner implements WhisperCommandRunner {
     }
     if (args[0] === 'container' && args[1] === 'start') {
       if (!this.container) return failure('No such container')
-      this.container.running = true
+      // Docker reports success for a container that starts and then exits on its
+      // own, which is what an unreadable model mount looks like from here.
+      this.container.running = !this.exitsImmediatelyWith
+      if (this.exitsImmediatelyWith !== null) {
+        this.container.exitCode = this.exitsImmediatelyWith
+      }
       return success(MANAGED_WHISPER_CONTAINER_NAME)
     }
     if (args[0] === 'container' && args[1] === 'stop') {

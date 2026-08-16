@@ -1,10 +1,12 @@
 import { constants as fsConstants } from 'node:fs'
-import { access, mkdir, rename, stat, statfs, writeFile } from 'node:fs/promises'
+import { access, chmod, mkdir, rename, stat, statfs, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
 import type { ManagedWhisperProgress, ManagedWhisperStatus } from '@shared/whisper'
 
 import {
+  MANAGED_MODEL_DIRECTORY_MODE,
+  MANAGED_MODEL_FILE_MODE,
   MANAGED_WHISPER_CONTAINER_NAME,
   MANAGED_WHISPER_IDLE_TIMEOUT_MS,
   MANAGED_WHISPER_IMAGE,
@@ -88,6 +90,7 @@ interface InspectedContainer {
   readonly expectedImage: boolean
   readonly running: boolean
   readonly origin: string | null
+  readonly exitCode: number | null
 }
 
 export class ManagedWhisperService {
@@ -331,7 +334,7 @@ export class ManagedWhisperService {
       canStart: false,
       canStop: false
     })
-    await mkdir(this.modelDirectory, { recursive: true, mode: 0o700 })
+    await this.prepareModelDirectory()
     await this.checkPrerequisites(signal, true)
 
     this.updateInstallProgress('pulling-image', 'Downloading the Whisper Vulkan container…')
@@ -407,7 +410,7 @@ export class ManagedWhisperService {
   }
 
   private async refreshStatus(signal: AbortSignal): Promise<void> {
-    await mkdir(this.modelDirectory, { recursive: true, mode: 0o700 })
+    await this.prepareModelDirectory()
     await this.checkPrerequisites(signal, false)
     const container = await this.inspectContainer(signal)
     if (!container) {
@@ -718,7 +721,7 @@ export class ManagedWhisperService {
 
   private async performStart(signal: AbortSignal): Promise<string> {
     throwIfWhisperCancelled(signal)
-    await mkdir(this.modelDirectory, { recursive: true, mode: 0o700 })
+    await this.prepareModelDirectory()
     await this.checkPrerequisites(signal, false)
     const container = await this.inspectContainer(signal)
     if (!container || !(await this.artifactsPresent())) {
@@ -767,9 +770,24 @@ export class ManagedWhisperService {
     while (this.now().getTime() <= deadline) {
       throwIfWhisperCancelled(signal)
       const container = await this.inspectContainer(signal)
-      if (!container) break
+      if (!container) {
+        throw new ManagedWhisperError(
+          'START_FAILED',
+          'The managed Whisper container disappeared while it was starting.'
+        )
+      }
       this.assertOwnedContainer(container)
-      if (!container.running) break
+      // A container that stopped on its own never became ready and never will.
+      // Reporting the readiness deadline here would blame a timeout for what is
+      // actually an immediate crash, so the exit code is surfaced instead.
+      if (!container.running) {
+        throw new ManagedWhisperError(
+          'START_FAILED',
+          `Whisper stopped while loading${
+            container.exitCode === null ? '' : ` (exit code ${container.exitCode})`
+          }. Run "docker logs ${MANAGED_WHISPER_CONTAINER_NAME}" for the cause.`
+        )
+      }
       if (
         container.origin &&
         (await this.healthCheck(container.origin, signal).catch(() => false))
@@ -939,7 +957,8 @@ export class ManagedWhisperService {
       owned: labels[MANAGED_WHISPER_LABEL_KEY] === MANAGED_WHISPER_LABEL_VALUE,
       expectedImage: config.Image === MANAGED_WHISPER_IMAGE,
       running: state.Running === true,
-      origin: parseLoopbackOrigin(ports['8080/tcp'])
+      origin: parseLoopbackOrigin(ports['8080/tcp']),
+      exitCode: typeof state.ExitCode === 'number' ? state.ExitCode : null
     }
   }
 
@@ -954,6 +973,33 @@ export class ManagedWhisperService {
       throw new ManagedWhisperError(
         'CONTAINER_CONFLICT',
         'The managed Whisper container does not use the pinned image. Run setup again.'
+      )
+    }
+  }
+
+  /**
+   * Creates the model directory and repairs the permissions the container needs.
+   * Existing installations were written 0o700/0o600 before this was understood,
+   * so the modes are reapplied on every status refresh, install, and start
+   * rather than only at download time.
+   */
+  private async prepareModelDirectory(): Promise<void> {
+    await mkdir(this.modelDirectory, { recursive: true, mode: 0o700 })
+    try {
+      await chmod(this.modelDirectory, MANAGED_MODEL_DIRECTORY_MODE)
+      for (const asset of [this.modelAsset, this.vadAsset]) {
+        const assetPath = join(this.modelDirectory, asset.fileName)
+        try {
+          await chmod(assetPath, MANAGED_MODEL_FILE_MODE)
+        } catch (cause) {
+          if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+        }
+      }
+    } catch (cause) {
+      throw new ManagedWhisperError(
+        'PERMISSION_DENIED',
+        'The Whisper model files could not be made readable by the container.',
+        { cause }
       )
     }
   }
