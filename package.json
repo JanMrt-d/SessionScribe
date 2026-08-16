@@ -75,7 +75,7 @@
     "eslint-plugin-react-refresh": "0.5.3",
     "ffmpeg-static": "5.3.0",
     "ffprobe-static": "3.1.0",
-    "jsdom": "29.1.1",
+    "jsdom": "30.0.1",
     "lucide-react": "1.24.0",
     "prettier": "3.9.5",
     "react": "19.2.7",
