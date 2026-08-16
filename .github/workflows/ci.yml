@@ -50,7 +50,7 @@ jobs:
       - run: npm run package:linux
       - name: Smoke-test packaged application
         run: xvfb-run -a npm run test:e2e:packaged:linux
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sessionscribe-linux-x64
           path: release/*
@@ -67,7 +67,7 @@ jobs:
       - run: choco install ffmpeg --yes --no-progress
       - run: npm ci
       - run: npm run package:win
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sessionscribe-windows-x64
           path: release/*
