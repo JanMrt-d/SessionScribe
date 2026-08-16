@@ -1,0 +1,11 @@
+# Check every text file out with LF on all platforms. Git on Windows defaults to
+# core.autocrlf=true, which rewrites the working copy to CRLF; Prettier is
+# configured for LF, so format:check on the Windows CI runner reported all 158
+# tracked files as misformatted. The repository itself already stores LF, so
+# this changes nothing on checkout for Linux or macOS.
+* text=auto eol=lf
+
+# Icons must never be line-ending converted.
+*.ico binary
+*.png binary
+*.icns binary
