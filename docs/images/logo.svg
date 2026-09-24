@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="SessionScribe logo">
+  <title>SessionScribe</title>
+  <rect width="512" height="512" rx="112" fill="#1f4436" />
+  <g fill="#8fd9b6">
+    <rect x="83" y="208" width="28" height="96" rx="14" />
+    <rect x="127" y="156" width="28" height="200" rx="14" />
+    <rect x="171" y="184" width="28" height="144" rx="14" />
+    <rect x="215" y="224" width="28" height="64" rx="14" />
+  </g>
+  <g fill="none" stroke="#f8faf7" stroke-linecap="round" stroke-width="28">
+    <path d="M293 196h108" />
+    <path d="M293 256h88" />
+    <path d="M293 316h60" />
+  </g>
+</svg>
