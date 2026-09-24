@@ -1,10 +1,52 @@
-# SessionScribe
+<p align="center">
+  <img src="docs/images/logo.svg" alt="SessionScribe logo" width="128" height="128">
+</p>
 
-SessionScribe is a local-first desktop application that records a lecture or
-meeting window through OBS Studio, transcribes the audio, and turns the
-transcript into grounded, chapter-structured notes. Transcription and
-summarization can run entirely on the local GPU, or through a provider chosen
-by the user.
+<h1 align="center">SessionScribe</h1>
+
+<p align="center">
+  Record lectures and meetings, transcribe them on your own GPU, and turn
+  them into structured, evidence-linked notes.
+</p>
+
+## What It Does
+
+1. **Capture with OBS.** SessionScribe drives OBS Studio over its WebSocket
+   API and records the selected lecture or meeting window. Existing
+   recordings can be imported instead.
+2. **Transcribe locally with Whisper.** Whisper Large-v3 runs in a managed
+   `whisper.cpp` container on the GPU through Vulkan; no API key and no
+   upload.
+3. **Tell speakers apart.** In meetings, pyannote runs locally on ROCm and
+   labels who spoke when, so summaries can assign action items per person.
+4. **Summarize with a local Ollama model or Claude Code.** Lectures become
+   chapter-structured study notes, meetings become decisions and action
+   items; every statement links back to the transcript. Ollama keeps
+   everything on the machine; Claude Code reuses its existing login and
+   sends the transcript to Anthropic.
+
+```mermaid
+flowchart TB
+    obs["<b>OBS Studio</b><br/>window capture"] --> extract
+    import["<b>Import</b><br/>existing recording"] --> extract
+    extract["<b>Audio extraction</b><br/>FFmpeg"] --> transcribe["<b>Transcription</b><br/>timestamped text"]
+    transcribe --> speakers["<b>Speaker diarization</b><br/>who spoke when"]
+    speakers --> summary["<b>Summary</b><br/>chapter notes"]
+    summary --> exports["<b>Notes & exports</b><br/>Markdown · PDF · SRT/VTT"]
+
+    transcribe -.- whisper["<b>Whisper Large-v3</b><br/>whisper.cpp · Vulkan"]
+    speakers -.- pyannote["<b>pyannote</b><br/>community-1 · ROCm"]
+    summary -.- llm["<b>Ollama</b> or <b>Claude Code</b><br/>local model or CLI login"]
+
+    classDef backend stroke-dasharray: 5 4
+    class whisper,pyannote,llm backend
+```
+
+Solid arrows are the durable processing pipeline inside SessionScribe; dashed
+boxes are the backends each stage calls. With Ollama for summaries, the whole
+pipeline runs locally. Cloud providers (ElevenLabs, OpenAI-compatible
+endpoints) can be used for transcription and summaries instead, but none is
+required.
 
 > [!IMPORTANT]
 > **This is a private project.** I built SessionScribe to transcribe my own
@@ -42,7 +84,7 @@ Both managed runtimes fit into 16 GB of VRAM concurrently (Whisper Large-v3
 plus roughly 2 GB for diarization), and each releases its VRAM after five
 minutes of inactivity.
 
-## Capabilities
+## Features
 
 - **Recording.** Controls a user-installed OBS Studio over its local WebSocket
   API. Supports X11 window capture and the user-driven Wayland PipeWire portal;
@@ -65,6 +107,12 @@ minutes of inactivity.
   speaker rename/merge and manual edits.
 - **Export.** Study notes as Markdown or PDF; transcripts as Markdown,
   speaker-labelled plain text, canonical JSON, SRT, and VTT.
+
+## Screenshots
+
+Screenshots will follow in a future update. They will show the main window,
+the chapter-structured notes of a lecture, and the managed runtime cards in
+Settings.
 
 ## Requirements
 
