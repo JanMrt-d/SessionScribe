@@ -18,7 +18,7 @@ by the user.
 | Aspect       | State                                                                                                   |
 | ------------ | ------------------------------------------------------------------------------------------------------- |
 | Maturity     | Pre-1.0, used day to day by the author. Expect rough edges; open work is tracked in [TODO.md](TODO.md). |
-| Platform     | Linux x86-64 only. Windows code paths exist and are built in CI, but are neither used nor supported.    |
+| Platform     | Linux x86-64 only. Windows code paths exist but are neither built in CI, used, nor supported.           |
 | Releases     | None. Build from source (see [Building from source](#building-from-source)).                            |
 | Code signing | None. Locally built packages are unsigned.                                                              |
 | Support      | Best effort. Issues are read; fixes are prioritised by what the author's own setup needs.               |
