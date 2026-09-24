@@ -66,6 +66,12 @@ minutes of inactivity.
 - **Export.** Study notes as Markdown or PDF; transcripts as Markdown,
   speaker-labelled plain text, canonical JSON, SRT, and VTT.
 
+## Screenshots
+
+Screenshots will follow in a future update. They will show the main window,
+the chapter-structured notes of a lecture, and the managed runtime cards in
+Settings.
+
 ## Requirements
 
 Mandatory:
