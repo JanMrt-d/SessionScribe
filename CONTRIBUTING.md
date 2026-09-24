@@ -54,8 +54,8 @@ that directly — stash the fix, watch the test fail, restore it.
 
 ## Verification
 
-Run all of these before opening a pull request. CI runs the same gates on Linux
-and Windows.
+Run all of these before opening a pull request. CI runs the same gates on
+Linux.
 
 ```bash
 npm run typecheck
