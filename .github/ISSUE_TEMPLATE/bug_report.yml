@@ -43,7 +43,6 @@ body:
       options:
         - Linux (Wayland)
         - Linux (X11)
-        - Windows
     validations:
       required: true
 
