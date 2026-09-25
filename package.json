@@ -43,8 +43,7 @@
     "prepare:ffmpeg": "node scripts/prepare-ffmpeg.mjs",
     "checksums": "node scripts/write-checksums.mjs",
     "package": "npm run build && npm run prepare:ffmpeg && electron-builder --publish never && npm run checksums",
-    "package:linux": "npm run build && npm run prepare:ffmpeg && electron-builder --linux AppImage rpm --x64 --publish never && npm run checksums",
-    "package:win": "npm run build && npm run prepare:ffmpeg && electron-builder --win nsis --x64 --publish never && npm run checksums"
+    "package:linux": "npm run build && npm run prepare:ffmpeg && electron-builder --linux AppImage rpm --x64 --publish never && npm run checksums"
   },
   "dependencies": {
     "electron-log": "5.4.4",
@@ -118,14 +117,6 @@
       "executableName": "sessionscribe",
       "syncDesktopName": true,
       "maintainer": "JanMrt-d <janmertes@outlook.com>"
-    },
-    "win": {
-      "icon": "build/icon.ico",
-      "target": "nsis"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
     }
   }
 }
