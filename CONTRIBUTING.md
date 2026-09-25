@@ -30,7 +30,9 @@ asked to move code rather than widen the boundary.
 - `src/renderer` has no Node.js access and never receives credentials or
   unrestricted paths.
 - `src/shared` contains versioned Zod schemas and IPC types. Changes here ripple
-  across every process, so they get extra scrutiny.
+  across every process, so they get extra scrutiny. Never alter a released
+  document version in place; add a new version and upgrade stored documents on
+  read.
 - Keep provider-specific wire formats behind adapters; persist only canonical
   documents.
 - Never log transcripts, summaries, provider payloads, credentials, or OBS
@@ -60,11 +62,14 @@ Linux.
 ```bash
 npm run typecheck
 npm run lint
+npm run format:check
 npm test
 npm run test:integration
 npm run build
 npm run test:e2e
 ```
+
+Without a display, run the end-to-end tests as `xvfb-run -a npm run test:e2e`.
 
 For changes that touch packaging, `extraResources`, or anything reading
 `process.resourcesPath`, also build and smoke-test the real artifact — the
