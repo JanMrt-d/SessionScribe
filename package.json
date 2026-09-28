@@ -48,7 +48,7 @@
   "dependencies": {
     "electron-log": "5.4.4",
     "obs-websocket-js": "5.0.8",
-    "zod": "4.4.3"
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
