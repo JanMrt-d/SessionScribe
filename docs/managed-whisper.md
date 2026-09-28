@@ -6,7 +6,7 @@ SessionScribe can deploy and operate Whisper Large-v3 locally through the offici
 
 Managed Whisper currently requires all of the following:
 
-- Linux on x86-64 (`uname -m` reports `x86_64`). Windows builds can use the other transcription providers, but do not attempt to deploy this Vulkan container.
+- Linux on x86-64 (`uname -m` reports `x86_64`).
 - A Vulkan-capable GPU with a working host driver and a render device under `/dev/dri`. The container uses the host's kernel device; Docker does not replace a missing or broken Vulkan driver.
 - [Docker Engine](https://docs.docker.com/engine/install/) and the Docker CLI at `/usr/bin/docker` or `/usr/local/bin/docker`. The same unprivileged desktop account that launches SessionScribe must be able to run `docker info` without `sudo`.
 - Internet access to GitHub Container Registry and Hugging Face during setup. Normal transcription is offline after the image and models have been installed.

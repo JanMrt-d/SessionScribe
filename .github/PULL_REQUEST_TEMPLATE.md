@@ -8,6 +8,7 @@
 
 - [ ] `npm run typecheck`
 - [ ] `npm run lint`
+- [ ] `npm run format:check`
 - [ ] `npm test`
 - [ ] `npm run test:integration`
 - [ ] `npm run build`

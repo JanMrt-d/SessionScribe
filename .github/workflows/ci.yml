@@ -44,7 +44,3 @@ jobs:
       - run: npm run package:linux
       - name: Smoke-test packaged application
         run: xvfb-run -a npm run test:e2e:packaged:linux
-      - uses: actions/upload-artifact@v7
-        with:
-          name: sessionscribe-linux-x64
-          path: release/*
